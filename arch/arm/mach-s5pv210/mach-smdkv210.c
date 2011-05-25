@@ -27,6 +27,7 @@
 #include <plat/cpu.h>
 #include <plat/adc.h>
 #include <plat/ts.h>
+#include <plat/pm.h>
 
 /* Following are default values for UCON, ULCON and UFCON UART registers */
 #define S5PV210_UCON_DEFAULT	(S3C2410_UCON_TXILEVEL |	\
@@ -96,6 +97,7 @@ static void __init smdkv210_map_io(void)
 
 static void __init smdkv210_machine_init(void)
 {
+	s3c_pm_init();
 	s3c24xx_ts_set_platdata(&s3c_ts_platform);
 	platform_add_devices(smdkv210_devices, ARRAY_SIZE(smdkv210_devices));
 }
@@ -108,5 +110,9 @@ MACHINE_START(SMDKV210, "SMDKV210")
 	.init_irq	= s5pv210_init_irq,
 	.map_io		= smdkv210_map_io,
 	.init_machine	= smdkv210_machine_init,
+#ifdef CONFIG_S5P_HIGH_RES_TIMERS
+	.timer		= &s5p_systimer,
+#else
 	.timer		= &s3c24xx_timer,
+#endif
 MACHINE_END

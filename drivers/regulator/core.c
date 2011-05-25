@@ -1493,10 +1493,19 @@ int regulator_is_enabled(struct regulator *regulator)
 	mutex_lock(&regulator->rdev->mutex);
 	ret = _regulator_is_enabled(regulator->rdev);
 	mutex_unlock(&regulator->rdev->mutex);
-
 	return ret;
 }
 EXPORT_SYMBOL_GPL(regulator_is_enabled);
+
+// for using specific regulator (not match with use_count)
+void regulator_set_use_count(struct regulator *regulator, int cnt)
+{
+	mutex_lock(&regulator->rdev->mutex);
+	regulator->rdev->use_count = cnt;
+	mutex_unlock(&regulator->rdev->mutex);
+}
+EXPORT_SYMBOL_GPL(regulator_set_use_count);
+
 
 /**
  * regulator_count_voltages - count regulator_list_voltage() selectors

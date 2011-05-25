@@ -1117,7 +1117,7 @@ config SENSORS_MC13783_ADC
         depends on MFD_MC13783
         help
           Support for the A/D converter on MC13783 PMIC.
-
+	  
 if ACPI
 
 comment "ACPI drivers"

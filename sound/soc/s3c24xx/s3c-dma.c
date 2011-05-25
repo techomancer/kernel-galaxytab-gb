@@ -1,4 +1,4 @@
-/*
+﻿/*
  * s3c-dma.c  --  ALSA Soc Audio Layer
  *
  * (c) 2006 Wolfson Microelectronics PLC.
@@ -32,6 +32,8 @@
 
 #include "s3c-dma.h"
 
+#define NEW_DMA
+
 static const struct snd_pcm_hardware s3c_dma_hardware = {
 	.info			= SNDRV_PCM_INFO_INTERLEAVED |
 				    SNDRV_PCM_INFO_BLOCK_TRANSFER |
@@ -45,9 +47,9 @@ static const struct snd_pcm_hardware s3c_dma_hardware = {
 				    SNDRV_PCM_FMTBIT_S8,
 	.channels_min		= 2,
 	.channels_max		= 2,
-	.buffer_bytes_max	= 128*1024,
-	.period_bytes_min	= PAGE_SIZE,
-	.period_bytes_max	= PAGE_SIZE*2,
+	.buffer_bytes_max	= 128 * 1024,
+	.period_bytes_min	= 128,
+	.period_bytes_max	= 32 * 1024,
 	.periods_min		= 2,
 	.periods_max		= 128,
 	.fifo_size		= 32,
@@ -87,6 +89,15 @@ static void s3c_dma_enqueue(struct snd_pcm_substream *substream)
 	pr_debug("%s: loaded %d, limit %d\n",
 				__func__, prtd->dma_loaded, limit);
 
+	
+#ifdef NEW_DMA
+	ret = s3c2410_dma_enqueue_autoload (prtd->params->channel,
+		substream, pos, prtd->dma_period, limit);
+	if (ret == 0) {
+		prtd->dma_loaded += limit;
+		pos += prtd->dma_period;
+	}
+#else
 	while (prtd->dma_loaded < limit) {
 		unsigned long len = prtd->dma_period;
 
@@ -109,7 +120,7 @@ static void s3c_dma_enqueue(struct snd_pcm_substream *substream)
 		} else
 			break;
 	}
-
+#endif
 	prtd->dma_pos = pos;
 }
 
@@ -133,7 +144,9 @@ static void s3c24xx_audio_buffdone(struct s3c2410_dma_chan *channel,
 	spin_lock(&prtd->lock);
 	if (prtd->state & ST_RUNNING && !s3c_dma_has_circular()) {
 		prtd->dma_loaded--;
+#ifndef NEW_DMA
 		s3c_dma_enqueue(substream);
+#endif
 	}
 
 	spin_unlock(&prtd->lock);
@@ -195,6 +208,11 @@ static int s3c_dma_hw_params(struct snd_pcm_substream *substream,
 	prtd->dma_start = runtime->dma_addr;
 	prtd->dma_pos = prtd->dma_start;
 	prtd->dma_end = prtd->dma_start + totbytes;
+
+	pr_debug("DmaAddr=@%x Total=%lubytes PrdSz=%u #Prds=%u dma_area=0x%x\n",
+			prtd->dma_start, totbytes, params_period_bytes(params),
+			params_periods(params), (unsigned int)runtime->dma_area);
+
 	spin_unlock_irq(&prtd->lock);
 
 	return 0;
@@ -392,7 +410,6 @@ static int s3c_preallocate_dma_buffer(struct snd_pcm *pcm, int stream)
 	size_t size = s3c_dma_hardware.buffer_bytes_max;
 
 	pr_debug("Entered %s\n", __func__);
-
 	buf->dev.type = SNDRV_DMA_TYPE_DEV;
 	buf->dev.dev = pcm->card->dev;
 	buf->private_data = NULL;
@@ -412,7 +429,11 @@ static void s3c_dma_free_dma_buffers(struct snd_pcm *pcm)
 
 	pr_debug("Entered %s\n", __func__);
 
+#ifdef CONFIG_S5P_INTERNAL_DMA
+	for (stream = 1; stream < 2; stream++) {
+#else
 	for (stream = 0; stream < 2; stream++) {
+#endif
 		substream = pcm->streams[stream].substream;
 		if (!substream)
 			continue;
@@ -440,14 +461,14 @@ static int s3c_dma_new(struct snd_card *card,
 		card->dev->dma_mask = &s3c_dma_mask;
 	if (!card->dev->coherent_dma_mask)
 		card->dev->coherent_dma_mask = 0xffffffff;
-
+#if !defined(CONFIG_S5P_INTERNAL_DMA) || defined(CONFIG_SND_S5P_RP)
 	if (dai->playback.channels_min) {
 		ret = s3c_preallocate_dma_buffer(pcm,
 			SNDRV_PCM_STREAM_PLAYBACK);
 		if (ret)
 			goto out;
 	}
-
+#endif
 	if (dai->capture.channels_min) {
 		ret = s3c_preallocate_dma_buffer(pcm,
 			SNDRV_PCM_STREAM_CAPTURE);
@@ -460,23 +481,11 @@ static int s3c_dma_new(struct snd_card *card,
 
 struct snd_soc_platform s3c24xx_soc_platform = {
 	.name		= "s3c24xx-audio",
-	.pcm_ops 	= &s3c_dma_ops,
+	.pcm_ops	= &s3c_dma_ops,
 	.pcm_new	= s3c_dma_new,
 	.pcm_free	= s3c_dma_free_dma_buffers,
 };
 EXPORT_SYMBOL_GPL(s3c24xx_soc_platform);
-
-static int __init s3c24xx_soc_platform_init(void)
-{
-	return snd_soc_register_platform(&s3c24xx_soc_platform);
-}
-module_init(s3c24xx_soc_platform_init);
-
-static void __exit s3c24xx_soc_platform_exit(void)
-{
-	snd_soc_unregister_platform(&s3c24xx_soc_platform);
-}
-module_exit(s3c24xx_soc_platform_exit);
 
 MODULE_AUTHOR("Ben Dooks, <ben@simtec.co.uk>");
 MODULE_DESCRIPTION("Samsung S3C Audio DMA module");

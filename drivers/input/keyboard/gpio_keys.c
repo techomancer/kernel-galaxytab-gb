@@ -75,6 +75,82 @@ struct gpio_keys_drvdata {
  * We can disable only those keys which don't allow sharing the irq.
  */
 
+#if defined(CONFIG_MACH_P1)
+#ifdef CONFIG_KERNEL_DEBUG_SEC
+#include <linux/kernel_sec_common.h>
+struct timer_list debug_timer;
+struct gpio_keys_platform_data *g_pdata;
+
+void enter_upload_mode(unsigned long val)
+{
+	bool uploadmode = true;
+	int i;
+
+	// not to enter forced upload mode in boot PARAM_LOW
+	if( KERNEL_SEC_DEBUG_LEVEL_LOW == kernel_sec_get_debug_level() )
+		return;
+
+	for (i = 0; i < g_pdata->nbuttons; i++)
+	{
+		struct gpio_keys_button *button = &g_pdata->buttons[i];
+		if(gpio_get_value(button->gpio))
+		{
+			uploadmode = false;
+			break;
+		}
+	}
+
+	if(uploadmode)
+	{
+		if (kernel_sec_viraddr_wdt_reset_reg)
+		{
+		dump_debug_info_forced_ramd_dump();
+#ifdef CONFIG_KERNEL_DEBUG_SEC
+#ifdef CONFIG_TARGET_LOCALE_KOR
+		local_irq_disable();
+		local_fiq_disable();
+#endif /* CONFIG_TARGET_LOCALE_KOR */
+#endif /* CONFIG_KERNEL_DEBUG_SEC */
+		kernel_sec_set_cp_upload();
+		kernel_sec_save_final_context(); // Save theh final context.
+		kernel_sec_set_upload_cause(UPLOAD_CAUSE_FORCED_UPLOAD);
+		kernel_sec_hw_reset(false);      // Reboot.
+		}
+	}
+}
+#endif
+
+/* For checking H/W faulty. */
+static ssize_t keyshort_test(struct device *dev, struct device_attribute *attr, char *buf)
+{
+       int i, ret=0;
+       int count;
+	struct gpio_keys_platform_data *pdata = dev->platform_data;
+
+	for(i = 0; i < pdata->nbuttons; i++ )
+	{
+	    struct gpio_keys_button *button = &pdata->buttons[i];
+	    ret = gpio_get_value( button->gpio);
+	    if(!ret)
+	        break;
+	}
+
+       if(!ret)
+	{
+		count = sprintf(buf,"PRESS\n");
+              printk(KERN_DEBUG "[Key] keyshort_test: PRESS\n");
+	}
+	else
+	{
+		count = sprintf(buf,"RELEASE\n");
+              printk(KERN_DEBUG "[Key] keyshort_test: RELEASE\n");
+	}
+
+	return count;
+}
+static DEVICE_ATTR(key_pressed, 0664, keyshort_test, NULL);
+#endif
+
 /**
  * get_n_events_by_type() - returns maximum number of events per @type
  * @type: type of button (%EV_KEY, %EV_SW)
@@ -321,6 +397,84 @@ static void gpio_keys_report_event(struct gpio_button_data *bdata)
 	unsigned int type = button->type ?: EV_KEY;
 	int state = (gpio_get_value(button->gpio) ? 1 : 0) ^ button->active_low;
 
+#if defined(CONFIG_MACH_P1)
+#ifdef CONFIG_KERNEL_DEBUG_SEC
+        static bool first=false;
+        static bool second=false;
+#ifdef CONFIG_TARGET_LOCALE_KOR
+        static bool third=false;
+#endif /* CONFIG_TARGET_LOCALE_KOR */
+
+        if(state)
+        {
+            if(button->code == KEY_VOLUMEUP)
+            {
+                first = true;
+            }
+
+            if(button->code == KEY_VOLUMEDOWN)
+            {
+                second = true;
+            }
+
+/* forced upload should be very quick and on time, omit the timer operation */
+#ifdef CONFIG_TARGET_LOCALE_KOR
+            if(button->code == KEY_POWER)
+            {
+                third = true;
+            }
+
+            if(first&&second&&third)
+                enter_upload_mode();
+#endif /* CONFIG_TARGET_LOCALE_KOR */
+
+            /* Entering the forced upload mode should be pressed both volume keys
+            before pressing the power key */
+            if(first&&second)
+            {
+                if(button->code == KEY_POWER)
+                {
+                    mod_timer(&debug_timer, jiffies + HZ*2);
+                    printk(KERN_WARNING "[Key] Waiting for upload mode for 2 seconds.\n");
+                }
+            }
+        }
+        else
+        {
+            if(button->code == KEY_VOLUMEUP)
+            {
+                first = false;
+            }
+
+            if(button->code == KEY_VOLUMEDOWN)
+            {
+                second = false;
+            }
+#ifdef CONFIG_TARGET_LOCALE_KOR
+            if(button->code == KEY_POWER)
+            {
+                third = false;
+            }
+#endif /* CONFIG_TARGET_LOCALE_KOR */
+        }
+#endif // CONFIG_KERNEL_DEBUG_SEC
+
+    if(state)
+    {
+        button->pressed = true;
+    }
+    else
+    {
+        /*workaround irq bug in p1*/
+        if(!button->pressed)
+        {
+            input_event(input, type, button->code, 1);
+            input_sync(input);
+            msleep(1);
+        }
+        button->pressed = false;
+    }
+#endif
 	input_event(input, type, button->code, !!state);
 	input_sync(input);
 }
@@ -484,12 +638,26 @@ static int __devinit gpio_keys_probe(struct platform_device *pdev)
 		goto fail3;
 	}
 
+#if !defined(CONFIG_MACH_P1)
 	/* get current state of buttons */
 	for (i = 0; i < pdata->nbuttons; i++)
 		gpio_keys_report_event(&ddata->data[i]);
 	input_sync(input);
+#endif
 
 	device_init_wakeup(&pdev->dev, wakeup);
+
+#if defined(CONFIG_MACH_P1)
+	if (device_create_file(&pdev->dev, &dev_attr_key_pressed) < 0)
+	{
+		pr_err("Failed to create device file(%s)!\n", dev_attr_key_pressed.attr.name);
+	}
+#ifdef CONFIG_KERNEL_DEBUG_SEC
+        g_pdata = pdata;
+        init_timer(&debug_timer);
+        debug_timer.function = enter_upload_mode;
+#endif
+#endif
 
 	return 0;
 
@@ -560,6 +728,20 @@ static int gpio_keys_suspend(struct device *dev)
 
 static int gpio_keys_resume(struct device *dev)
 {
+#if defined(CONFIG_MACH_P1)
+	struct platform_device *pdev = to_platform_device(dev);
+	struct gpio_keys_platform_data *pdata = pdev->dev.platform_data;
+	int i;
+
+	for (i = 0; i < pdata->nbuttons; i++) {
+
+		struct gpio_keys_button *button = &pdata->buttons[i];
+		if (button->wakeup && device_may_wakeup(&pdev->dev)) {
+			int irq = gpio_to_irq(button->gpio);
+			disable_irq_wake(irq);
+		}
+	}
+#else
 	struct platform_device *pdev = to_platform_device(dev);
 	struct gpio_keys_drvdata *ddata = platform_get_drvdata(pdev);
 	struct gpio_keys_platform_data *pdata = pdev->dev.platform_data;
@@ -576,6 +758,7 @@ static int gpio_keys_resume(struct device *dev)
 		gpio_keys_report_event(&ddata->data[i]);
 	}
 	input_sync(ddata->input);
+#endif
 
 	return 0;
 }

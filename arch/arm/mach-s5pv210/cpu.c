@@ -58,7 +58,47 @@ static struct map_desc s5pv210_iodesc[] __initdata = {
 		.pfn		= __phys_to_pfn(S5PV210_PA_SROMC),
 		.length		= SZ_4K,
 		.type		= MT_DEVICE,
-	}
+	}, {
+		.virtual	= (unsigned long)S3C_VA_WATCHDOG,
+		.pfn		= __phys_to_pfn(S5P_PA_WDT),
+		.length 	= SZ_4K,
+		.type		= MT_DEVICE,
+	}, {
+		.virtual	= (unsigned long)S3C_VA_OTG,
+		.pfn		= __phys_to_pfn(S5PV210_PA_OTG),
+		.length		= SZ_1M,
+		.type		= MT_DEVICE,
+	}, {
+		.virtual	= (unsigned long)S3C_VA_OTGSFR,
+		.pfn		= __phys_to_pfn(S5PV210_PA_OTGSFR),
+		.length		= SZ_1M,
+		.type		= MT_DEVICE,
+	},
+#if defined(CONFIG_HRT_RTC)
+	{
+		.virtual	= (unsigned long)S5P_VA_RTC,
+		.pfn		= __phys_to_pfn(S5PV210_PA_RTC),
+		.length		= SZ_4K,
+		.type		= MT_DEVICE,
+	},
+#endif
+	{
+		.virtual	= (unsigned long)S5P_VA_DMC0,
+		.pfn		= __phys_to_pfn(S5P_PA_DMC0),
+		.length		= SZ_4K,
+		.type		= MT_DEVICE,
+	}, {
+		.virtual	= (unsigned long)S5P_VA_DMC1,
+		.pfn		= __phys_to_pfn(S5P_PA_DMC1),
+		.length		= SZ_4K,
+		.type		= MT_DEVICE,
+	}, {
+		.virtual	= (unsigned long)S5P_VA_AUDSS,
+		.pfn		= __phys_to_pfn(S5PV210_PA_AUDSS),
+		.length		= SZ_1M,
+		.type		= MT_DEVICE,
+	},
+
 };
 
 static void s5pv210_idle(void)

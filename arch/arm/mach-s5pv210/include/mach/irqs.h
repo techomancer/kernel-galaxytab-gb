@@ -17,6 +17,22 @@
 
 /* VIC0: System, DMA, Timer */
 
+#define IRQ_EINT0		S5P_IRQ_VIC0(0)
+#define IRQ_EINT1		S5P_IRQ_VIC0(1)
+#define IRQ_EINT2		S5P_IRQ_VIC0(2)
+#define IRQ_EINT3		S5P_IRQ_VIC0(3)
+#define IRQ_EINT4		S5P_IRQ_VIC0(4)
+#define IRQ_EINT5		S5P_IRQ_VIC0(5)
+#define IRQ_EINT6		S5P_IRQ_VIC0(6)
+#define IRQ_EINT7		S5P_IRQ_VIC0(7)
+#define IRQ_EINT8		S5P_IRQ_VIC0(8)
+#define IRQ_EINT9		S5P_IRQ_VIC0(9)
+#define IRQ_EINT10		S5P_IRQ_VIC0(10)
+#define IRQ_EINT11		S5P_IRQ_VIC0(11)
+#define IRQ_EINT12		S5P_IRQ_VIC0(12)
+#define IRQ_EINT13		S5P_IRQ_VIC0(13)
+#define IRQ_EINT14		S5P_IRQ_VIC0(14)
+#define IRQ_EINT15		S5P_IRQ_VIC0(15)
 #define IRQ_EINT16_31		S5P_IRQ_VIC0(16)
 #define IRQ_BATF		S5P_IRQ_VIC0(17)
 #define IRQ_MDMA		S5P_IRQ_VIC0(18)
@@ -54,8 +70,8 @@
 #define IRQ_SPI0		S5P_IRQ_VIC1(15)
 #define IRQ_SPI1		S5P_IRQ_VIC1(16)
 #define IRQ_SPI2		S5P_IRQ_VIC1(17)
-#define IRQ_IRDA		S5P_IRQ_VIC1(18)
-#define IRQ_CAN0		S5P_IRQ_VIC1(19)
+#define IRQ_ASS			S5P_IRQ_VIC1(18)
+#define IRQ_IIC2		S5P_IRQ_VIC1(19)
 #define IRQ_CAN1		S5P_IRQ_VIC1(20)
 #define IRQ_HSIRX		S5P_IRQ_VIC1(21)
 #define IRQ_HSITX		S5P_IRQ_VIC1(22)
@@ -116,17 +132,107 @@
 #define IRQ_MDNIE1		S5P_IRQ_VIC3(6)
 #define IRQ_MDNIE2		S5P_IRQ_VIC3(7)
 #define IRQ_MDNIE3		S5P_IRQ_VIC3(8)
+#define IRQ_ADC1		S5P_IRQ_VIC3(9)
+#define IRQ_PENDN1		S5P_IRQ_VIC3(10)
 #define IRQ_VIC_END		S5P_IRQ_VIC3(31)
 
 #define S5P_EINT_BASE1		(S5P_IRQ_VIC0(0))
 #define S5P_EINT_BASE2		(IRQ_VIC_END + 1)
+#define S5P_IRQ_EINT_BASE   S5P_EINT_BASE2
 
-/* Set the default NR_IRQS */
-#define NR_IRQS			(IRQ_EINT(31) + 1)
+#define S5P_EINT(x)    ((x) + S5P_IRQ_EINT_BASE)
+
+/* GPIO interrupt */
+#define S5P_GPIOINT_GROUP_NR   22
+#define S5P_GPIOINT_BASE       (IRQ_EINT(31) + 1)
+#define S5P_IRQ_GPIOINT(x)     (S5P_GPIOINT_BASE + (x))
+
 
 /* Compatibility */
 #define IRQ_LCD_FIFO		IRQ_LCD0
 #define IRQ_LCD_VSYNC		IRQ_LCD1
 #define IRQ_LCD_SYSTEM		IRQ_LCD2
+
+/* Next the external interrupt groups. These are similar to the IRQ_EINT(x)
+ * that they are sourced from the GPIO pins but with a different scheme for
+ * priority and source indication.
+ *
+ * The IRQ_EINT(x) can be thought of as 'group 0' of the available GPIO
+ * interrupts, but for historical reasons they are kept apart from these
+ * next interrupts.
+ *
+ * Use IRQ_EINT_GROUP(group, offset) to get the number for use in the
+ * machine specific support files.
+ */
+
+#define IRQ_EINT_GROUP1_NR	(8)	/* A0 */
+#define IRQ_EINT_GROUP2_NR	(4)	/* A1 */
+#define IRQ_EINT_GROUP3_NR	(8)     /* B */
+#define IRQ_EINT_GROUP4_NR	(5)     /* C0 */
+#define IRQ_EINT_GROUP5_NR	(5)     /* C1 */
+#define IRQ_EINT_GROUP6_NR	(4)     /* D0 */
+#define IRQ_EINT_GROUP7_NR	(6)     /* D1 */
+#define IRQ_EINT_GROUP8_NR	(8)     /* E0 */
+#define IRQ_EINT_GROUP9_NR	(5)     /* E1 */
+#define IRQ_EINT_GROUP10_NR	(8)     /* F0 */
+#define IRQ_EINT_GROUP11_NR	(8)     /* F1 */
+#define IRQ_EINT_GROUP12_NR	(8)     /* F2 */
+#define IRQ_EINT_GROUP13_NR	(6)     /* F3 */
+#define IRQ_EINT_GROUP14_NR	(7)     /* G0 */
+#define IRQ_EINT_GROUP15_NR	(7)     /* G1 */
+#define IRQ_EINT_GROUP16_NR	(7)     /* G2 */
+#define IRQ_EINT_GROUP17_NR	(7)     /* G3 */
+#define IRQ_EINT_GROUP18_NR	(8)     /* J0 */
+#define IRQ_EINT_GROUP19_NR	(6)     /* J1 */
+#define IRQ_EINT_GROUP20_NR	(8)     /* J2 */
+#define IRQ_EINT_GROUP21_NR	(8)     /* J3 */
+#define IRQ_EINT_GROUP22_NR	(5)     /* J4 */
+
+#define IRQ_EINT_GROUP_BASE	S5P_EINT(31 + 1)
+#define IRQ_EINT_GROUP1_BASE	(IRQ_EINT_GROUP_BASE + 0x00)
+#define IRQ_EINT_GROUP2_BASE	(IRQ_EINT_GROUP1_BASE + IRQ_EINT_GROUP1_NR)
+#define IRQ_EINT_GROUP3_BASE	(IRQ_EINT_GROUP2_BASE + IRQ_EINT_GROUP2_NR)
+#define IRQ_EINT_GROUP4_BASE	(IRQ_EINT_GROUP3_BASE + IRQ_EINT_GROUP3_NR)
+#define IRQ_EINT_GROUP5_BASE	(IRQ_EINT_GROUP4_BASE + IRQ_EINT_GROUP4_NR)
+#define IRQ_EINT_GROUP6_BASE	(IRQ_EINT_GROUP5_BASE + IRQ_EINT_GROUP5_NR)
+#define IRQ_EINT_GROUP7_BASE	(IRQ_EINT_GROUP6_BASE + IRQ_EINT_GROUP6_NR)
+#define IRQ_EINT_GROUP8_BASE	(IRQ_EINT_GROUP7_BASE + IRQ_EINT_GROUP7_NR)
+#define IRQ_EINT_GROUP9_BASE	(IRQ_EINT_GROUP8_BASE + IRQ_EINT_GROUP8_NR)
+#define IRQ_EINT_GROUP10_BASE	(IRQ_EINT_GROUP9_BASE + IRQ_EINT_GROUP9_NR)
+#define IRQ_EINT_GROUP11_BASE	(IRQ_EINT_GROUP10_BASE + IRQ_EINT_GROUP10_NR)
+#define IRQ_EINT_GROUP12_BASE	(IRQ_EINT_GROUP11_BASE + IRQ_EINT_GROUP11_NR)
+#define IRQ_EINT_GROUP13_BASE	(IRQ_EINT_GROUP12_BASE + IRQ_EINT_GROUP12_NR)
+#define IRQ_EINT_GROUP14_BASE	(IRQ_EINT_GROUP13_BASE + IRQ_EINT_GROUP13_NR)
+#define IRQ_EINT_GROUP15_BASE	(IRQ_EINT_GROUP14_BASE + IRQ_EINT_GROUP14_NR)
+#define IRQ_EINT_GROUP16_BASE	(IRQ_EINT_GROUP15_BASE + IRQ_EINT_GROUP15_NR)
+#define IRQ_EINT_GROUP17_BASE	(IRQ_EINT_GROUP16_BASE + IRQ_EINT_GROUP16_NR)
+#define IRQ_EINT_GROUP18_BASE	(IRQ_EINT_GROUP17_BASE + IRQ_EINT_GROUP17_NR)
+#define IRQ_EINT_GROUP19_BASE	(IRQ_EINT_GROUP18_BASE + IRQ_EINT_GROUP18_NR)
+#define IRQ_EINT_GROUP20_BASE	(IRQ_EINT_GROUP19_BASE + IRQ_EINT_GROUP19_NR)
+#define IRQ_EINT_GROUP21_BASE	(IRQ_EINT_GROUP20_BASE + IRQ_EINT_GROUP20_NR)
+#define IRQ_EINT_GROUP22_BASE	(IRQ_EINT_GROUP21_BASE + IRQ_EINT_GROUP21_NR)
+
+#define IRQ_EINT_GROUP(group, no)	(IRQ_EINT_GROUP##group##_BASE + (no))
+
+#define IRQ_EINT_END		(IRQ_EINT_GROUP22_BASE + IRQ_EINT_GROUP22_NR)
+
+/*
+ * Set the default NR_IRQS
+ * GPIO groups is 27. Each GPIO group can have max 8 GPIO interrupts.
+ *
+ * We should include gpios of all gpio groups from GPIO_A0 until GPIO_J4 to
+ * NR_IRQS because 22 gpio groups having gpio interrupts aren't in order and
+ * are mixed with no interrupt gpio groups, then it can give simple irq
+ * computation of gpio interrupts.
+ */
+#define NR_IRQS (S5P_IRQ_GPIOINT(27 * 8) + 1)
+
+
+#define HALL_SENSOR_IRQ		IRQ_EINT3
+
+#define FIQ_START		0
+
+#define IRQ_MAX8998_BASE		IRQ_EINT_END
+#define IRQ_MAX8998_END		IRQ_EINT_END + 17
 
 #endif /* ASM_ARCH_IRQS_H */

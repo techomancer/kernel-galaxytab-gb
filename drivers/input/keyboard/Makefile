@@ -38,3 +38,6 @@ obj-$(CONFIG_KEYBOARD_SUNKBD)		+= sunkbd.o
 obj-$(CONFIG_KEYBOARD_TWL4030)		+= twl4030_keypad.o
 obj-$(CONFIG_KEYBOARD_XTKBD)		+= xtkbd.o
 obj-$(CONFIG_KEYBOARD_W90P910)		+= w90p910_keypad.o
+obj-$(CONFIG_KEYPAD_CYPRESS_TOUCH)      += cypress-touchkey.o
+obj-$(CONFIG_KEYPAD_MELFAS_TOUCH)                += melfas-touchkey.o
+obj-$(CONFIG_KEYBOARD_P1)   += p1_keyboard.o

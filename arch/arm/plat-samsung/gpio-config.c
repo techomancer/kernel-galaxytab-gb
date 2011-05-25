@@ -80,6 +80,26 @@ int s3c_gpio_setpull(unsigned int pin, s3c_gpio_pull_t pull)
 }
 EXPORT_SYMBOL(s3c_gpio_setpull);
 
+int s3c_gpio_setpin(unsigned int pin, s3c_gpio_pull_t level)
+{
+        struct s3c_gpio_chip *chip = s3c_gpiolib_getchip(pin);
+        unsigned long flags;
+        int offset, ret;
+
+        if (!chip)
+                return -EINVAL;
+
+        offset = pin - chip->chip.base;
+
+        local_irq_save(flags);
+        //ret = s3c_gpio_do_setpin(chip, offset, level);
+       	ret = (chip->config->set_pin)(chip, offset, level);
+	 local_irq_restore(flags);
+
+        return ret;
+}
+
+EXPORT_SYMBOL(s3c_gpio_setpin);
 #ifdef CONFIG_S3C_GPIO_CFG_S3C24XX
 int s3c_gpio_setcfg_s3c24xx_a(struct s3c_gpio_chip *chip,
 			      unsigned int off, unsigned int cfg)
@@ -273,12 +293,12 @@ s5p_gpio_drvstr_t s5p_gpio_get_drvstr(unsigned int pin)
 	if (!chip)
 		return -EINVAL;
 
-	off = chip->chip.base - pin;
+	off = pin - chip->chip.base;
 	shift = off * 2;
 	reg = chip->base + 0x0C;
 
 	drvstr = __raw_readl(reg);
-	drvstr = 0xffff & (0x3 << shift);
+	drvstr &= (0x3 << shift);
 	drvstr = drvstr >> shift;
 
 	return (__force s5p_gpio_drvstr_t)drvstr;
@@ -296,11 +316,12 @@ int s5p_gpio_set_drvstr(unsigned int pin, s5p_gpio_drvstr_t drvstr)
 	if (!chip)
 		return -EINVAL;
 
-	off = chip->chip.base - pin;
+	off = pin - chip->chip.base;
 	shift = off * 2;
 	reg = chip->base + 0x0C;
 
 	tmp = __raw_readl(reg);
+	tmp &= ~(0x3 << shift);
 	tmp |= drvstr << shift;
 
 	__raw_writel(tmp, reg);

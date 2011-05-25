@@ -426,4 +426,31 @@ config KEYBOARD_W90P910
 	  To compile this driver as a module, choose M here: the
 	  module will be called w90p910_keypad.
 
+config KEYPAD_CYPRESS_TOUCH
+	tristate "Cypress touch keypad support"
+	default n
+	help
+	  Say Y here if you want to use the Cypress touch keypad.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called cypress-touchkey.
+
+config KEYPAD_MELFAS_TOUCH
+        tristate "Melfas touch keypad support"
+        default n
+        help
+          Say Y here if you want to use the melfas touch keypad.
+
+          To compile this driver as a module, choose M here: the
+          module will be called melfas-touchkey.
+
+config KEYBOARD_P1
+	tristate "P1 dock keyboard support"
+	default n
+	help
+	  Say Y here if you want to use the P1 dock keyboard.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called p1_keyboard.
+
 endif

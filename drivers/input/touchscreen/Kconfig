@@ -248,6 +248,18 @@ config TOUCHSCREEN_MK712
 	  To compile this driver as a module, choose M here: the
 	  module will be called mk712.
 
+config TOUCHSCREEN_MXT224
+	tristate "Atmel MaxTouch 224"
+	depends on I2C
+	help
+	  Say Y here to enable support for the Atmel MaxTouch 224 touch
+	  controller.
+
+	  If unsure, say N.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called mxt224.
+
 config TOUCHSCREEN_HP600
 	tristate "HP Jornada 6xx touchscreen"
 	depends on SH_HP6XX && SH_ADC
@@ -302,6 +314,12 @@ config TOUCHSCREEN_MIGOR
 
 	  To compile this driver as a module, choose M here: the
 	  module will be called migor_ts.
+
+config TOUCHSCREEN_SYNAPTICS_I2C_RMI
+	tristate "Synaptics i2c touchscreen"
+	depends on I2C
+	help
+	  This enables support for Synaptics RMI over I2C based touchscreens.
 
 config TOUCHSCREEN_TOUCHRIGHT
 	tristate "Touchright serial touchscreen"
@@ -603,4 +621,15 @@ config TOUCHSCREEN_TPS6507X
 	  To compile this driver as a module, choose M here: the
 	  module will be called tps6507x_ts.
 
+config TOUCHSCREEN_QT602240
+        tristate "quantum touchscreen driver"
+        default N
+        help
+          Say Y here to enable the driver for the touchscreen on the
+          S3C spica board.
+
+          If unsure, say N.
+
+          To compile this driver as a module, choose M here: the
+          module will be called melfas_ts.
 endif

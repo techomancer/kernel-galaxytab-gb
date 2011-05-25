@@ -1726,7 +1726,7 @@ static int wait_for_avail_min(struct snd_pcm_substream *substream,
 		}
 		set_current_state(TASK_INTERRUPTIBLE);
 		snd_pcm_stream_unlock_irq(substream);
-		tout = schedule_timeout(msecs_to_jiffies(10000));
+		tout = schedule_timeout(msecs_to_jiffies(30000));
 		snd_pcm_stream_lock_irq(substream);
 		switch (runtime->status->state) {
 		case SNDRV_PCM_STATE_SUSPENDED:
@@ -1748,7 +1748,7 @@ static int wait_for_avail_min(struct snd_pcm_substream *substream,
 			goto _endloop;
 		}
 		if (!tout) {
-			snd_printd("%s write error (DMA or IRQ trouble?)\n",
+			printk("wait_for_avail_min : %s write error (DMA or IRQ trouble?)\n",
 				   is_playback ? "playback" : "capture");
 			err = -EIO;
 			break;

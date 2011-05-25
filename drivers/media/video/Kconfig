@@ -37,6 +37,10 @@ config VIDEO_BTCX
 	depends on PCI
 	tristate
 
+config VIDEO_IR
+	tristate
+	depends on INPUT
+
 config VIDEO_TVEEPROM
 	tristate
 	depends on I2C
@@ -44,10 +48,6 @@ config VIDEO_TVEEPROM
 config VIDEO_TUNER
 	tristate
 	depends on MEDIA_TUNER
-
-config V4L2_MEM2MEM_DEV
-	tristate
-	depends on VIDEOBUF_GEN
 
 #
 # Multimedia Video device configuration
@@ -1126,6 +1126,27 @@ config USB_S2255
 	  This driver can be compiled as a module, called s2255drv.
 
 endif # V4L_USB_DRIVERS
+
+config VIDEO_ISX005
+        tristate "ISX005 supporting camera driver"
+        depends on I2C && VIDEO_V4L2
+        ---help---
+          This driver supports ISX005 SoC camera module
+
+config VIDEO_S5K6AAFX
+        tristate "S5K6AAFX Camera Sensor"
+        depends on I2C && VIDEO_V4L2
+        ---help---
+          This driver supports S5K6AAFX SoC camera module
+
+config VIDEO_S5K5CCGX
+        tristate "S5K5CCGX Camera Sensor"
+        depends on I2C && VIDEO_V4L2
+        ---help---
+          This driver supports S5K5CCGX SoC camera module
+
+source "drivers/media/video/samsung/Kconfig"
+
 endif # VIDEO_CAPTURE_DRIVERS
 
 menuconfig V4L_MEM2MEM_DRIVERS

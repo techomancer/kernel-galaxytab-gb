@@ -1,4 +1,4 @@
-/* arch/arm/plat-samsung/include/plat/dma.h
+﻿/* arch/arm/plat-samsung/include/plat/dma.h
  *
  * Copyright (C) 2003-2006 Simtec Electronics
  *	Ben Dooks <ben@simtec.co.uk>
@@ -18,7 +18,9 @@ enum s3c2410_dma_buffresult {
 
 enum s3c2410_dmasrc {
 	S3C2410_DMASRC_HW,		/* source is memory */
-	S3C2410_DMASRC_MEM		/* source is hardware */
+	S3C2410_DMASRC_MEM,		/* source is hardware */
+	S3C_DMA_MEM2MEM,
+	S3C_DMA_MEM2MEM_SET,
 };
 
 /* enum s3c2410_chan_op
@@ -98,6 +100,8 @@ extern int s3c2410_dma_free(unsigned int channel, struct s3c2410_dma_client *);
 extern int s3c2410_dma_enqueue(unsigned int channel, void *id,
 			       dma_addr_t data, int size);
 
+extern int s3c2410_dma_enqueue_autoload(unsigned int channel, void *id,
+			       dma_addr_t data, int size, int num);
 /* s3c2410_dma_config
  *
  * configure the dma channel

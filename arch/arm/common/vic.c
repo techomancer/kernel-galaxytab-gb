@@ -91,8 +91,6 @@ static int vic_class_resume(struct sys_device *dev)
 	struct vic_device *vic = to_vic(dev);
 	void __iomem *base = vic->base;
 
-	printk(KERN_DEBUG "%s: resuming vic at %p\n", __func__, base);
-
 	/* re-initialise static settings */
 	vic_init2(base);
 
@@ -115,8 +113,6 @@ static int vic_class_suspend(struct sys_device *dev, pm_message_t state)
 {
 	struct vic_device *vic = to_vic(dev);
 	void __iomem *base = vic->base;
-
-	printk(KERN_DEBUG "%s: suspending vic at %p\n", __func__, base);
 
 	vic->int_select = readl(base + VIC_INT_SELECT);
 	vic->int_enable = readl(base + VIC_INT_ENABLE);
@@ -227,6 +223,37 @@ static void vic_unmask_irq(unsigned int irq)
 	writel(1 << irq, base + VIC_INT_ENABLE);
 }
 
+static int vic_retrigger_irq(unsigned int irq)
+{
+	void __iomem *base = get_irq_chip_data(irq);
+	irq &= 31;
+	writel(1 << irq, base + VIC_INT_SOFT);
+	return 1;
+}
+
+static DEFINE_SPINLOCK(vic_intselect_lock);
+int vic_set_fiq(unsigned int irq, bool enable)
+{
+	u32 int_select;
+	u32 mask;
+	unsigned long irq_flags;
+	void __iomem *base = get_irq_chip_data(irq);
+	irq &= 31;
+	mask = 1 << irq;
+
+	spin_lock_irqsave(&vic_intselect_lock, irq_flags);
+	int_select = readl(base + VIC_INT_SELECT);
+	if (enable)
+		int_select |= mask;
+	else
+		int_select &= ~mask;
+	writel(int_select, base + VIC_INT_SELECT);
+	spin_unlock_irqrestore(&vic_intselect_lock, irq_flags);
+
+	return 0;
+}
+EXPORT_SYMBOL(vic_set_fiq);
+
 #if defined(CONFIG_PM)
 static struct vic_device *vic_from_irq(unsigned int irq)
 {
@@ -270,6 +297,7 @@ static struct irq_chip vic_chip = {
 	.ack		= vic_ack_irq,
 	.mask		= vic_mask_irq,
 	.unmask		= vic_unmask_irq,
+	.retrigger	= vic_retrigger_irq,
 	.set_wake	= vic_set_wake,
 };
 

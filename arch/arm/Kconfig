@@ -1104,6 +1104,19 @@ source "drivers/pcmcia/Kconfig"
 
 endmenu
 
+menu "Samsung Kernel Debug Features"
+
+choice
+        prompt "Enable Samsung Kernel Debug Features"
+        default KERNEL_DEBUG_SEC
+
+config KERNEL_DEBUG_SEC
+        bool "KERNEL_DEBUG_SEC"
+
+endchoice
+
+endmenu
+
 menu "Kernel Features"
 
 source "kernel/time/Kconfig"
@@ -1198,6 +1211,7 @@ source kernel/Kconfig.preempt
 config HZ
 	int
 	default 128 if ARCH_L7200
+	default 256 if S5P_HIGH_RES_TIMERS
 	default 200 if ARCH_EBSA110 || ARCH_S3C2410 || ARCH_S5P6440 || ARCH_S5P6442 || ARCH_S5PV210
 	default OMAP_32K_TIMER_HZ if ARCH_OMAP && OMAP_32K_TIMER
 	default AT91_TIMER_HZ if ARCH_AT91

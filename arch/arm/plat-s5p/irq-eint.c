@@ -37,18 +37,28 @@ static inline void s5p_irq_eint_mask(unsigned int irq)
 	__raw_writel(mask, S5P_EINT_MASK(EINT_REG_NR(irq)));
 }
 
+static inline void s5p_irq_eint_ack(unsigned int irq)
+{
+	__raw_writel(eint_irq_to_bit(irq), S5P_EINT_PEND(EINT_REG_NR(irq)));
+}
+
 static void s5p_irq_eint_unmask(unsigned int irq)
 {
 	u32 mask;
 
+	/* for level triggered interrupts, masking doesn't prevent
+	 * the interrupt from becoming pending again.  by the time
+	 * the handler (either irq or thread) can do its thing to clear
+	 * the interrupt, it's too late because it could be pending
+	 * already.  we have to ack it here, after the handler runs,
+	 * or else we get a false interrupt.
+	 */
+	if (irq_to_desc(irq)->status & IRQ_LEVEL)
+		s5p_irq_eint_ack(irq);
+
 	mask = __raw_readl(S5P_EINT_MASK(EINT_REG_NR(irq)));
 	mask &= ~(eint_irq_to_bit(irq));
 	__raw_writel(mask, S5P_EINT_MASK(EINT_REG_NR(irq)));
-}
-
-static inline void s5p_irq_eint_ack(unsigned int irq)
-{
-	__raw_writel(eint_irq_to_bit(irq), S5P_EINT_PEND(EINT_REG_NR(irq)));
 }
 
 static void s5p_irq_eint_maskack(unsigned int irq)
@@ -64,6 +74,7 @@ static int s5p_irq_eint_set_type(unsigned int irq, unsigned int type)
 	int shift;
 	u32 ctrl, mask;
 	u32 newvalue = 0;
+	struct irq_desc *desc = irq_to_desc(irq);
 
 	switch (type) {
 	case IRQ_TYPE_EDGE_RISING:
@@ -113,6 +124,11 @@ static int s5p_irq_eint_set_type(unsigned int irq, unsigned int type)
 
 	else
 		printk(KERN_ERR "No such irq number %d", offs);
+
+	if (type & IRQ_TYPE_EDGE_BOTH)
+		desc->handle_irq = handle_edge_irq;
+	else
+		desc->handle_irq = handle_level_irq;
 
 	return 0;
 }

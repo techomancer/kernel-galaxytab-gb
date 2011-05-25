@@ -882,6 +882,10 @@ static void dapm_seq_run(struct snd_soc_codec *codec, struct list_head *list,
 		dapm_seq_run_coalesced(codec, &pending);
 }
 
+#ifdef CONFIG_SND_S5P_RP
+extern volatile int s5p_rp_is_running;
+#endif
+
 /*
  * Scan each dapm widget for complete audio path.
  * A complete path is a route that has valid endpoints i.e.:-
@@ -982,6 +986,9 @@ static int dapm_power_widgets(struct snd_soc_codec *codec, int event)
 	}
 
 	/* Power down widgets first; try to avoid amplifying pops. */
+#ifdef CONFIG_SND_S5P_RP
+        if (!s5p_rp_is_running)
+#endif            
 	dapm_seq_run(codec, &down_list, event, dapm_down_seq);
 
 	/* Now power up. */

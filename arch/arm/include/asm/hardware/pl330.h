@@ -1,4 +1,4 @@
-/* linux/include/asm/hardware/pl330.h
+﻿/* linux/include/asm/hardware/pl330.h
  *
  * Copyright (C) 2010 Samsung Electronics Co. Ltd.
  *	Jaswinder Singh <jassi.brar@samsung.com>
@@ -165,6 +165,7 @@ struct pl330_req {
 	struct pl330_reqcfg *cfg;
 	/* Pointer to first xfer in the request. */
 	struct pl330_xfer *x;
+	u32 autoload;
 };
 
 /*

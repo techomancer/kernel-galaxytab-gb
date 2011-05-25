@@ -57,7 +57,8 @@ struct s3c24xx_uart_port {
 /* conversion functions */
 
 #define s3c24xx_dev_to_port(__dev) (struct uart_port *)dev_get_drvdata(__dev)
-#define s3c24xx_dev_to_cfg(__dev) (struct s3c2410_uartcfg *)((__dev)->platform_data)
+#define s3c24xx_dev_to_cfg(__dev)	\
+		(struct s3c2410_uartcfg *)((__dev)->platform_data)
 
 /* register access controls */
 
@@ -80,6 +81,8 @@ extern int s3c24xx_serial_initconsole(struct platform_driver *drv,
 extern int s3c24xx_serial_init(struct platform_driver *drv,
 			       struct s3c24xx_uart_info *info);
 
+extern void s3c_setup_uart_cfg_gpio(unsigned char port);
+
 #ifdef CONFIG_SERIAL_SAMSUNG_CONSOLE
 
 #define s3c24xx_console_init(__drv, __inf)				\
@@ -96,7 +99,7 @@ static int __init s3c_serial_console_init(void)				\
 console_initcall(s3c_serial_console_init)
 
 #else
-#define s3c24xx_console_init(drv, inf) extern void no_console(void)
+#define s3c24xx_console_init(drv, inf) void no_console(void) {}
 #endif
 
 #ifdef CONFIG_SERIAL_SAMSUNG_DEBUG
