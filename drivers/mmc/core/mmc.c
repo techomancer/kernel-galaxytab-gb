@@ -123,7 +123,7 @@ static int mmc_decode_csd(struct mmc_card *card)
 	 * We also support eMMC v4.4 & v4.41.
 	 */
 	csd->structure = UNSTUFF_BITS(resp, 126, 2);
-	if (csd->structure == 0) {
+	if (csd->structure != 1 && csd->structure != 2 && csd->structure != 3) {
 		printk(KERN_ERR "%s: unrecognised CSD structure version %d\n",
 			mmc_hostname(card->host), csd->structure);
 		return -EINVAL;
@@ -317,6 +317,7 @@ static int mmc_init_card(struct mmc_host *host, u32 ocr,
 	struct mmc_card *card;
 	int err;
 	u32 cid[4];
+	u32 rocr[1];
 	unsigned int max_dtr;
 
 	BUG_ON(!host);
@@ -331,7 +332,7 @@ static int mmc_init_card(struct mmc_host *host, u32 ocr,
 	mmc_go_idle(host);
 
 	/* The extra bit indicates that we support high capacity */
-	err = mmc_send_op_cond(host, ocr | (1 << 30), NULL);
+	err = mmc_send_op_cond(host, ocr | (1 << 30), rocr);
 	if (err)
 		goto err;
 
@@ -420,6 +421,8 @@ static int mmc_init_card(struct mmc_host *host, u32 ocr,
 		err = mmc_read_ext_csd(card);
 		if (err)
 			goto free_card;
+		if (rocr[0] & 0x40000000)
+			mmc_card_set_blockaddr(card);
 	}
 
 	/*

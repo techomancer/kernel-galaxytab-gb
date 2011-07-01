@@ -258,6 +258,9 @@ config SND_SOC_WM8993
 config SND_SOC_WM8994
 	tristate
 
+config SND_SOC_WM8994_PCM
+	tristate
+
 config SND_SOC_WM9081
 	tristate
 

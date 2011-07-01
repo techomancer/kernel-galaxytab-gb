@@ -65,17 +65,6 @@ void s3c_udc_cable_disconnect(struct s3c_udc *dev)
 }
 #endif
 
-static void s3c_udc_lock(struct s3c_udc * dev, int enable)
-{
-	if (enable) {
-		pr_info("usb udc_lock\n"); 
-		wake_lock(&dev->udc_wake_lock);
-	} else {
-		pr_info("usb udc_unlock\n"); 
-		wake_unlock(&dev->udc_wake_lock);
-	}
-}
-
 static inline void s3c_udc_ep0_zlp(void)
 {
 	u32 ep_ctrl;
@@ -297,11 +286,6 @@ static void complete_tx(struct s3c_udc *dev, u8 ep_num)
 		is_short, ep_tsr, xfer_size);
 
 	if (req->req.actual == req->req.length) {
-		if ((ep_num > 0) && req->req.zero) {
-			req->req.zero = 0;
-			write_fifo_ep0(ep,req);
-			return;
-		}
 		done(ep, req, 0);
 
 		if (!list_empty(&ep->queue)) {
@@ -496,7 +480,6 @@ static irqreturn_t s3c_udc_irq(int irq, void *_dev)
 #if defined(CONFIG_MACH_SMDKC110) || defined(CONFIG_MACH_SMDKV210)
 		s3c_udc_cable_disconnect(dev);
 #endif
-		s3c_udc_lock(dev,0); // unlock usb
 	}
 
 	if (intr_status & INT_RESUME) {
@@ -515,8 +498,6 @@ static irqreturn_t s3c_udc_irq(int irq, void *_dev)
 		usb_status = readl(S3C_UDC_OTG_GOTGCTL);
 		DEBUG_ISR("\tReset interrupt - (GOTGCTL):0x%x\n", usb_status);
 		writel(INT_RESET, S3C_UDC_OTG_GINTSTS);
-
-		s3c_udc_lock(dev,1); // lock usb
 
 		set_conf_done = 0;
 
@@ -539,7 +520,6 @@ static irqreturn_t s3c_udc_irq(int irq, void *_dev)
 					spin_lock(&dev->lock);
 				}
 			}
-			s3c_udc_lock(dev,0); // unlock usb
 		} else {
 			reset_available = 1;
 			DEBUG_ISR("\t\tRESET handling skipped\n");

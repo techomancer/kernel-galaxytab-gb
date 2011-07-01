@@ -499,7 +499,7 @@ int s3c_vbus_enable(struct usb_gadget *gadget, int enable)
 		wake_unlock(&dev->udc_wake_lock);
 		s5pv210_unlock_dvfs_high_level(DVFS_LOCK_TOKEN_8);
 	}
-	
+
 	if (dev->udc_enabled != enable) {
 		dev->udc_enabled = enable;
 		if (!enable) {
@@ -588,12 +588,14 @@ static void nuke(struct s3c_ep *ep, int status)
 static void stop_activity(struct s3c_udc *dev,
 			  struct usb_gadget_driver *driver)
 {
-	int i, notify = 1;
+	int i;
 
-	dev_info(&dev->gadget.dev, "usb stop_activity called.\n");
+	dev_info(&dev->gadget.dev, "stop_activity called.\n");
 
+	/* don't disconnect drivers more than once */
 	if (dev->gadget.speed == USB_SPEED_UNKNOWN) {
-		notify = 0; 
+		/* Don't set driver pointer to zero. we have to revisit this function. */
+		//driver = 0; 
 		dev_info(&dev->gadget.dev, "gadget speed is unknown.\n");
 	}
 	dev->gadget.speed = USB_SPEED_UNKNOWN;
@@ -605,11 +607,10 @@ static void stop_activity(struct s3c_udc *dev,
 		nuke(ep, -ESHUTDOWN);
 	}
 
-	if (notify) {
-		spin_unlock(&dev->lock);
-		driver->disconnect(&dev->gadget);
-		spin_lock(&dev->lock);
-	}
+	// always call disconnect() to notify disconnection event to the android platform.
+	spin_unlock(&dev->lock);
+	driver->disconnect(&dev->gadget);
+	spin_lock(&dev->lock);
 
 	/* re-init driver-visible data structures */
 	udc_reinit(dev);
@@ -694,14 +695,12 @@ static void reconfig_usbd(void)
 	writel((0x10<<6)|0x20, S3C_UDC_OTG_GRSTCTL);
 	while (readl(S3C_UDC_OTG_GRSTCTL) & 0x20)
 		;
-
 #if 0 // rndis patch by LSI on 2011.02.10
 	/* 13. Clear NAK bit of EP0, EP1, EP2*/
 	/* For Slave mode*/
 	writel(DEPCTL_EPDIS|DEPCTL_CNAK|(0<<0),
 	       S3C_UDC_OTG_DOEPCTL(EP0_CON)); /* EP0: Control OUT */
 #endif
-
 	/* 14. Initialize OTG Link Core.*/
 	writel(GAHBCFG_INIT, S3C_UDC_OTG_GAHBCFG);
 }

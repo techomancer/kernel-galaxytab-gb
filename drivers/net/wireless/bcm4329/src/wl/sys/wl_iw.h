@@ -37,6 +37,7 @@
 #define SOFTAP 1
 
 
+#define FEATURE_HOTSPOT_EVENT
 #define	WL_IW_RSSI_MINVAL		-200	
 #define	WL_IW_RSSI_NO_SIGNAL	-91	
 #define	WL_IW_RSSI_VERY_LOW	-80	
@@ -60,11 +61,19 @@
 #define WL_AP_STA_LIST          (SIOCIWFIRSTPRIV+17)
 #define WL_AP_MAC_FLTR	        (SIOCIWFIRSTPRIV+19)
 #define WL_AP_BSS_START         (SIOCIWFIRSTPRIV+21)
-#define AP_LPB_CMD              (SIOCIWFIRSTPRIV+23)
+//#define AP_LPB_CMD              (SIOCIWFIRSTPRIV+23)
+#define WL_FW_DISASSOC_STA      (SIOCIWFIRSTPRIV+23)
 #define WL_AP_STOP              (SIOCIWFIRSTPRIV+25)
 #define WL_FW_RELOAD            (SIOCIWFIRSTPRIV+27)
-#define WL_AP_SPARE2            (SIOCIWFIRSTPRIV+29)
-#define WL_AP_SPARE3            (SIOCIWFIRSTPRIV+31)
+//#define WL_AP_SPARE2            (SIOCIWFIRSTPRIV+29)
+//#define WL_AP_SPARE3            (SIOCIWFIRSTPRIV+31)
+#ifdef FEATURE_HOTSPOT_EVENT
+//  SecFeature CHG START STEALTH_V by jaekwan.jeon
+#define WL_AP_MAX_ASSOC         (SIOCIWFIRSTPRIV+29)
+// #define GET_QUEUE		(SIOCIWFIRSTPRIV+29)
+// #define GET_QUEUE_SIZE  (SIOCIWFIRSTPRIV+31)
+//  SecFeature CHG END STEALTH_V by jaekwan.jeon
+#endif
 #define 		G_SCAN_RESULTS 8*1024
 #define 		WE_ADD_EVENT_FIX	0x80
 #define          G_WLAN_SET_ON	0
@@ -125,20 +134,13 @@ typedef enum broadcast_first_scan {
 	BROADCAST_SCAN_FIRST_RESULT_CONSUMED
 } broadcast_first_scan_t;
 #ifdef SOFTAP
+
+#define NEW_AP_INTERFACE
+
 #define SSID_LEN	33
 #define SEC_LEN		16
 #define KEY_LEN		65
 #define PROFILE_OFFSET	32
-struct ap_profile {
-	uint8	ssid[SSID_LEN];
-	uint8	sec[SEC_LEN];
-	uint8	key[KEY_LEN];
-	uint32	channel; 
-	uint32	preamble;
-	uint32	max_scb;	
-	uint32	hidden_ssid;
-};
-
 
 #define MACLIST_MODE_DISABLED	0
 #define MACLIST_MODE_ENABLED	1
@@ -151,6 +153,22 @@ struct mac_list_set {
 	uint32	mode;
 	struct mflist white_list;
 	struct mflist black_list;
+};
+
+struct ap_profile {
+	uint8	ssid[SSID_LEN];
+	uint8	sec[SEC_LEN];
+	uint8	key[KEY_LEN];
+	uint32	channel; 
+	uint32	preamble;
+	uint32	max_scb;	
+#ifdef NEW_AP_INTERFACE
+	uint32	hidden_ssid;
+	uint32	op_mode;
+	uint32	key_index;
+	int     is_wep;
+	struct mac_list_set mac_filter;
+#endif
 };
 #endif   
 

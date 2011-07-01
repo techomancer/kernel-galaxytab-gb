@@ -455,6 +455,7 @@ extern int  wl_iw_escan_set_scan_broadcast_prep(struct net_device *dev, uint fla
 #endif 
 
 extern int wl_iw_send_priv_event(struct net_device *dev, char *flag);
+extern int net_os_send_hang_message(struct net_device *dev);
 /*
  * Insmod parameters for debug/test
  */
@@ -526,6 +527,10 @@ extern char nv_path[MOD_PARAM_PATHLEN];
 
 #ifdef APSTA_PINGTEST
 #define MAX_GUEST 8
+#endif
+
+#ifdef CONFIG_CONTROL_PM
+extern bool g_PMcontrol;
 #endif
 
 extern void dhd_wait_for_event(dhd_pub_t *dhd, bool *lockvar);

@@ -148,6 +148,7 @@ EXPORT_SYMBOL(sec_get_param_value);
 #define WLAN_SKB_BUF_NUM	16
 
 static struct sk_buff *wlan_static_skb[WLAN_SKB_BUF_NUM];
+EXPORT_SYMBOL(wlan_static_skb);
 
 struct sec_battery_callbacks *callbacks;
 struct max17042_callbacks *max17042_cb;
@@ -182,6 +183,8 @@ static int crespo_notifier_call(struct notifier_block *this,
 			mode = REBOOT_MODE_RECOVERY;
 		else if (!strcmp((char *)_cmd, "download")) 
 			mode = REBOOT_MODE_DOWNLOAD;
+		else if (!strcmp((char *)_cmd, "factory_reboot")) 
+			mode = REBOOT_MODE_NONE;
 	}
 	
 	if(code != SYS_POWER_OFF) {
@@ -197,6 +200,7 @@ static struct notifier_block crespo_reboot_notifier = {
 	.notifier_call = crespo_notifier_call,
 };
 
+#if defined(CONFIG_MACH_P1_GSM)
 static void gps_gpio_init(void)
 {
 	struct device *gps_dev;
@@ -227,6 +231,7 @@ static void gps_gpio_init(void)
  err:
 	return;
 }
+#endif
 
 static void uart_switch_init(void)
 {
@@ -354,8 +359,13 @@ static struct s3cfb_lcd lvds = {
         .freq = 60,
 
         .timing = {
+#if defined(CONFIG_MACH_P1_GSM)
                 .h_fp = 142,    //50,	//179,	//.h_fp = 79,
                 .h_bp = 210,    //30,	//225,	//.h_bp = 200,
+#elif defined(CONFIG_MACH_P1_CDMA)
+                .h_fp = 100,    //50,	//179,	//.h_fp = 79,
+                .h_bp = 80,    //30,	//225,	//.h_bp = 200,
+#endif
                 .h_sw = 50,     //20,	//40,
                 .v_fp = 10,     //6,	//10,
                 .v_fpe = 1,
@@ -1070,7 +1080,11 @@ static void lvds_cfg_gpio(struct platform_device *pdev)
 //        writel(0xffffffff, S5P_VA_GPIO + 0x14c);
 //        writel(0xffffffff, S5P_VA_GPIO + 0x16c);
 //        writel(0x000000ff, S5P_VA_GPIO + 0x18c);
+#if defined(CONFIG_MACH_P1_GSM)
         writel(0x5555557f, S5P_VA_GPIO + 0x12c);
+#elif defined(CONFIG_MACH_P1_CDMA)
+        writel(0x555555bf, S5P_VA_GPIO + 0x12c);
+#endif
         writel(0x55555555, S5P_VA_GPIO + 0x14c);
         writel(0x55555555, S5P_VA_GPIO + 0x16c);
         writel(0x00000055, S5P_VA_GPIO + 0x18c);
@@ -2750,9 +2764,16 @@ static void fsa9480_set_init_flag(void)
 
 static void fsa9480_usb_switch(void)
 {
+// I am inclined to believe GSM version is better
+#if defined(CONFIG_MACH_P1_GSM)
 	// wait until sec_switch init finished.
 	while(!sec_switch_inited)
 		msleep(50);
+#elif defined(CONFIG_MACH_P1_CDMA)
+	// check if sec_switch init finished.
+	if(!sec_switch_inited)
+		return;
+#endif
 
 	if(sec_switch_status & (int)(USB_SEL_MASK)) {
 		sec_switch_set_regulator(AP_VBUS_ON);
@@ -3768,7 +3789,11 @@ static struct gpio_init_data herring_init_gpios[] = {
 		.num	= S5PV210_GPH0(7),
 		.cfg	= S3C_GPIO_SFN(0xF),
 		.val	= S3C_GPIO_SETPIN_NONE,
+#if defined(CONFIG_MACH_P1_GSM)
 		.pud	= S3C_GPIO_PULL_NONE,
+#elif defined(CONFIG_MACH_P1_CDMA)
+		.pud	= S3C_GPIO_PULL_UP,
+#endif
 		.drv	= S3C_GPIO_DRVSTR_1X,
 	},
 
@@ -3915,14 +3940,20 @@ static struct gpio_init_data herring_init_gpios[] = {
 		.pud	= S3C_GPIO_PULL_DOWN,
 		.drv	= S3C_GPIO_DRVSTR_1X,
 	}, {
+#if defined(CONFIG_MACH_P1_GSM)
 		.num	= S5PV210_GPH3(7),
 		.cfg	= S3C_GPIO_INPUT,
 		.val	= S3C_GPIO_SETPIN_NONE,
 		.pud	= S3C_GPIO_PULL_DOWN,
 		.drv	= S3C_GPIO_DRVSTR_1X,
-	},
-
-	{
+#elif defined(CONFIG_MACH_P1_CDMA)
+		.num    = S5PV210_GPH3(7),
+		.cfg    = S3C_GPIO_OUTPUT,
+		.val    = S3C_GPIO_SETPIN_ZERO,
+		.pud    = S3C_GPIO_PULL_DOWN,
+		.drv    = S3C_GPIO_DRVSTR_4X,
+#endif
+	}, {
 		.num	= S5PV210_GPI(0),
 		.cfg	= S3C_GPIO_INPUT,
 		.val	= S3C_GPIO_SETPIN_NONE,
@@ -5832,7 +5863,11 @@ static unsigned int p1_r09_sleep_gpio_table[][3] = {
 	{S5PV210_GPJ1(0), 
 			S3C_GPIO_SLP_OUT0, S3C_GPIO_PULL_NONE}, 
 	{S5PV210_GPJ1(1),  // MESSMEMORY_EN
+#if defined(CONFIG_MACH_P1_GSM)
 			S3C_GPIO_SLP_OUT1, S3C_GPIO_PULL_NONE}, 
+#elif defined(CONFIG_MACH_P1_CDMA)
+			S3C_GPIO_SLP_OUT0, S3C_GPIO_PULL_NONE}, 
+#endif
 	{S5PV210_GPJ1(2), 
 			S3C_GPIO_SLP_OUT0, S3C_GPIO_PULL_NONE}, 
 	{S5PV210_GPJ1(4),  // OVF_FLAG
@@ -6013,28 +6048,56 @@ static unsigned int p1_r12_sleep_gpio_table[][3] = {
 			S3C_GPIO_SLP_INPUT, S3C_GPIO_PULL_NONE}, 
 	{S5PV210_GPA0(3),
 			S3C_GPIO_SLP_OUT1, S3C_GPIO_PULL_NONE}, 
-	{S5PV210_GPA0(4), 
+	{S5PV210_GPA0(4),
+#if defined(CONFIG_MACH_P1_GSM)
 			S3C_GPIO_SLP_INPUT, S3C_GPIO_PULL_NONE}, 
+#elif defined(CONFIG_MACH_P1_CDMA)
+			S3C_GPIO_SLP_INPUT, S3C_GPIO_PULL_DOWN},
+#endif
 	{S5PV210_GPA0(5),
+#if defined(CONFIG_MACH_P1_GSM)
 			S3C_GPIO_SLP_OUT0, S3C_GPIO_PULL_NONE}, 
+#elif defined(CONFIG_MACH_P1_CDMA)
+			S3C_GPIO_SLP_INPUT, S3C_GPIO_PULL_DOWN},
+#endif
 	{S5PV210_GPA0(6), 
+#if defined(CONFIG_MACH_P1_GSM)
 			S3C_GPIO_SLP_INPUT, S3C_GPIO_PULL_NONE}, 
+#elif defined(CONFIG_MACH_P1_CDMA)
+			S3C_GPIO_SLP_INPUT, S3C_GPIO_PULL_DOWN}, 
+#endif
 	{S5PV210_GPA0(7),
+#if defined(CONFIG_MACH_P1_GSM)
 			S3C_GPIO_SLP_OUT0, S3C_GPIO_PULL_NONE}, 
+#elif defined(CONFIG_MACH_P1_CDMA)
+			S3C_GPIO_SLP_INPUT, S3C_GPIO_PULL_DOWN},
+#endif
 
 	{S5PV210_GPA1(0), 
 			S3C_GPIO_SLP_INPUT, S3C_GPIO_PULL_DOWN}, 
 	{S5PV210_GPA1(1),
 			S3C_GPIO_SLP_OUT0, S3C_GPIO_PULL_NONE}, 
 	{S5PV210_GPA1(2), 
+#if defined(CONFIG_MACH_P1_GSM)
 			S3C_GPIO_SLP_INPUT, S3C_GPIO_PULL_NONE}, 
+#elif defined(CONFIG_MACH_P1_CDMA)
+			S3C_GPIO_SLP_INPUT, S3C_GPIO_PULL_DOWN}, 
+#endif
 	{S5PV210_GPA1(3),
+#if defined(CONFIG_MACH_P1_GSM)
 			S3C_GPIO_SLP_OUT0, S3C_GPIO_PULL_NONE}, 
+#elif defined(CONFIG_MACH_P1_CDMA)
+			S3C_GPIO_SLP_INPUT, S3C_GPIO_PULL_DOWN},
+#endif
 
 	{S5PV210_GPB(0), 
 			S3C_GPIO_SLP_OUT0, S3C_GPIO_PULL_NONE}, 
 	{S5PV210_GPB(1),
+#if defined(CONFIG_MACH_P1_GSM)
 			S3C_GPIO_SLP_INPUT, S3C_GPIO_PULL_NONE}, 
+#elif defined(CONFIG_MACH_P1_CDMA)
+			S3C_GPIO_SLP_OUT1, S3C_GPIO_PULL_NONE},
+#endif
 	{S5PV210_GPB(2),
 			S3C_GPIO_SLP_OUT0, S3C_GPIO_PULL_NONE}, 
 //	{S5PV210_GPB(3),  // GPIO_BT_nRST
@@ -6049,15 +6112,31 @@ static unsigned int p1_r12_sleep_gpio_table[][3] = {
 			S3C_GPIO_SLP_INPUT, S3C_GPIO_PULL_DOWN}, 
 
 	{S5PV210_GPC0(0), 
+#if defined(CONFIG_MACH_P1_GSM)
 			S3C_GPIO_SLP_OUT0, S3C_GPIO_PULL_NONE}, 
+#elif defined(CONFIG_MACH_P1_CDMA)
+			S3C_GPIO_SLP_INPUT, S3C_GPIO_PULL_DOWN}, 
+#endif
 	{S5PV210_GPC0(1),  // NC
 			S3C_GPIO_SLP_INPUT, S3C_GPIO_PULL_DOWN}, 
 	{S5PV210_GPC0(2), 
+#if defined(CONFIG_MACH_P1_GSM)
 			S3C_GPIO_SLP_OUT0, S3C_GPIO_PULL_NONE}, 
+#elif defined(CONFIG_MACH_P1_CDMA)
+			S3C_GPIO_SLP_INPUT, S3C_GPIO_PULL_DOWN}, 
+#endif
 	{S5PV210_GPC0(3), 
+#if defined(CONFIG_MACH_P1_GSM)
 			S3C_GPIO_SLP_INPUT, S3C_GPIO_PULL_NONE}, 
+#elif defined(CONFIG_MACH_P1_CDMA)
+			S3C_GPIO_SLP_INPUT, S3C_GPIO_PULL_DOWN}, 
+#endif
 	{S5PV210_GPC0(4), 
+#if defined(CONFIG_MACH_P1_GSM)
 			S3C_GPIO_SLP_OUT0, S3C_GPIO_PULL_NONE}, 
+#elif defined(CONFIG_MACH_P1_CDMA)
+			S3C_GPIO_SLP_INPUT, S3C_GPIO_PULL_DOWN},
+#endif
 
 	{S5PV210_GPC1(0),  // CMC_SLEEP
 			S3C_GPIO_SLP_OUT0, S3C_GPIO_PULL_NONE}, 
@@ -6188,32 +6267,76 @@ static unsigned int p1_r12_sleep_gpio_table[][3] = {
 	{S5PV210_GPG0(0), 
 			S3C_GPIO_SLP_OUT0, S3C_GPIO_PULL_NONE}, 
 	{S5PV210_GPG0(1),  // NAND_CMD
+#if defined(CONFIG_MACH_P1_GSM)
 			S3C_GPIO_SLP_INPUT, S3C_GPIO_PULL_NONE}, 
+#elif defined(CONFIG_MACH_P1_CDMA)
+			S3C_GPIO_SLP_INPUT, S3C_GPIO_PULL_DOWN}, 
+#endif
 	{S5PV210_GPG0(2),  // NC
 			S3C_GPIO_SLP_INPUT, S3C_GPIO_PULL_DOWN},
 	{S5PV210_GPG0(3),  // NAND_D(0)
+#if defined(CONFIG_MACH_P1_GSM)
 			S3C_GPIO_SLP_INPUT, S3C_GPIO_PULL_NONE}, 
+#elif defined(CONFIG_MACH_P1_CDMA)
+			S3C_GPIO_SLP_INPUT, S3C_GPIO_PULL_DOWN}, 
+#endif
 	{S5PV210_GPG0(4),  // NAND_D(1)
+#if defined(CONFIG_MACH_P1_GSM)
 			S3C_GPIO_SLP_INPUT, S3C_GPIO_PULL_NONE}, 
+#elif defined(CONFIG_MACH_P1_CDMA)
+			S3C_GPIO_SLP_INPUT, S3C_GPIO_PULL_DOWN}, 
+#endif
 	{S5PV210_GPG0(5),  // NAND_D(2)
+#if defined(CONFIG_MACH_P1_GSM)
 			S3C_GPIO_SLP_INPUT, S3C_GPIO_PULL_NONE}, 
+#elif defined(CONFIG_MACH_P1_CDMA)
+			S3C_GPIO_SLP_INPUT, S3C_GPIO_PULL_DOWN}, 
+#endif
 	{S5PV210_GPG0(6),  // NAND_D(3)
+#if defined(CONFIG_MACH_P1_GSM)
 			S3C_GPIO_SLP_INPUT, S3C_GPIO_PULL_NONE}, 
+#elif defined(CONFIG_MACH_P1_CDMA)
+			S3C_GPIO_SLP_INPUT, S3C_GPIO_PULL_DOWN}, 
+#endif
 
 	{S5PV210_GPG1(0),  // GPS_nRST
+#if defined(CONFIG_MACH_P1_GSM)
 			S3C_GPIO_SLP_OUT0, S3C_GPIO_PULL_NONE}, 
+#elif defined(CONFIG_MACH_P1_CDMA)
+			S3C_GPIO_SLP_INPUT, S3C_GPIO_PULL_DOWN},
+#endif
 	{S5PV210_GPG1(1),  // GPS_PWR_EN
+#if defined(CONFIG_MACH_P1_GSM)
 			S3C_GPIO_SLP_OUT0, S3C_GPIO_PULL_NONE}, 
+#elif defined(CONFIG_MACH_P1_CDMA)
+			S3C_GPIO_SLP_INPUT, S3C_GPIO_PULL_DOWN}, 
+#endif
 	{S5PV210_GPG1(2),  // NC
 			S3C_GPIO_SLP_INPUT, S3C_GPIO_PULL_DOWN},
 	{S5PV210_GPG1(3),  // NAND_D(4)
+#if defined(CONFIG_MACH_P1_GSM)
 			S3C_GPIO_SLP_INPUT, S3C_GPIO_PULL_NONE}, 
+#elif defined(CONFIG_MACH_P1_CDMA)
+			S3C_GPIO_SLP_INPUT, S3C_GPIO_PULL_DOWN}, 
+#endif
 	{S5PV210_GPG1(4),  // NAND_D(5)
+#if defined(CONFIG_MACH_P1_GSM)
 			S3C_GPIO_SLP_INPUT, S3C_GPIO_PULL_NONE}, 
+#elif defined(CONFIG_MACH_P1_CDMA)
+			S3C_GPIO_SLP_INPUT, S3C_GPIO_PULL_DOWN}, 
+#endif
 	{S5PV210_GPG1(5),  // NAND_D(6)
+#if defined(CONFIG_MACH_P1_GSM)
 			S3C_GPIO_SLP_INPUT, S3C_GPIO_PULL_NONE}, 
+#elif defined(CONFIG_MACH_P1_CDMA)
+			S3C_GPIO_SLP_INPUT, S3C_GPIO_PULL_DOWN}, 
+#endif
 	{S5PV210_GPG1(6),  // NAND_D(7)
+#if defined(CONFIG_MACH_P1_GSM)
 			S3C_GPIO_SLP_INPUT, S3C_GPIO_PULL_NONE}, 
+#elif defined(CONFIG_MACH_P1_CDMA)
+			S3C_GPIO_SLP_INPUT, S3C_GPIO_PULL_DOWN}, 
+#endif
 
 	{S5PV210_GPG2(0), 
 			S3C_GPIO_SLP_OUT0, S3C_GPIO_PULL_NONE}, 
@@ -6278,13 +6401,25 @@ static unsigned int p1_r12_sleep_gpio_table[][3] = {
 			S3C_GPIO_SLP_INPUT, S3C_GPIO_PULL_NONE}, 
 
 	{S5PV210_GPJ1(0),  // NC
+#if defined(CONFIG_MACH_P1_GSM)
 			S3C_GPIO_SLP_INPUT, S3C_GPIO_PULL_DOWN}, 
+#elif defined(CONFIG_MACH_P1_CDMA)
+			S3C_GPIO_SLP_OUT0, S3C_GPIO_PULL_NONE}, 
+#endif
 	{S5PV210_GPJ1(1),  // MESSMEMORY_EN
+#if defined(CONFIG_MACH_P1_GSM)
 			S3C_GPIO_SLP_OUT1, S3C_GPIO_PULL_NONE}, 
+#elif defined(CONFIG_MACH_P1_CDMA)
+			S3C_GPIO_SLP_OUT0, S3C_GPIO_PULL_NONE}, 
+#endif
 	{S5PV210_GPJ1(2), 
 			S3C_GPIO_SLP_OUT0, S3C_GPIO_PULL_NONE}, 
 	{S5PV210_GPJ1(3),  // NC
 			S3C_GPIO_SLP_INPUT, S3C_GPIO_PULL_DOWN}, 
+#if defined(CONFIG_MACH_P1_CDMA)
+	{S5PV210_GPJ1(4),
+                        S3C_GPIO_SLP_OUT0, S3C_GPIO_PULL_NONE},
+#endif
 	{S5PV210_GPJ1(5), 
 			S3C_GPIO_SLP_OUT0, S3C_GPIO_PULL_NONE}, 
 
@@ -6377,7 +6512,11 @@ static unsigned int p1_r12_sleep_gpio_table[][3] = {
 			S3C_GPIO_SLP_INPUT, S3C_GPIO_PULL_DOWN}, 
 
 	{S5PV210_MP04(0),  // GPS_CNTL
+#if defined(CONFIG_MACH_P1_GSM)
 			S3C_GPIO_SLP_OUT0, S3C_GPIO_PULL_NONE}, 
+#elif defined(CONFIG_MACH_P1_CDMA)
+			S3C_GPIO_SLP_INPUT, S3C_GPIO_PULL_DOWN},
+#endif
 	{S5PV210_MP04(1),  // NC
 			S3C_GPIO_SLP_INPUT, S3C_GPIO_PULL_DOWN}, 
 	{S5PV210_MP04(2),  // NC
@@ -6402,7 +6541,11 @@ static unsigned int p1_r12_sleep_gpio_table[][3] = {
 	{S5PV210_MP05(3),  // AP_SDA
 			S3C_GPIO_SLP_INPUT, S3C_GPIO_PULL_NONE}, 
 	{S5PV210_MP05(4),  // NC
+#if defined(CONFIG_MACH_P1_GSM)
 			S3C_GPIO_SLP_INPUT, S3C_GPIO_PULL_DOWN}, 
+#elif defined(CONFIG_MACH_P1_CDMA)
+			S3C_GPIO_SLP_OUT0, S3C_GPIO_PULL_NONE}, 
+#endif
 	{S5PV210_MP05(6),  // NC
 			S3C_GPIO_SLP_INPUT, S3C_GPIO_PULL_DOWN}, 
 	{S5PV210_MP05(7),  //UART_SEL
@@ -6519,6 +6662,10 @@ void s3c_config_sleep_gpio_table(int array_size, unsigned int (*gpio_table)[3])
 void s3c_config_sleep_gpio(void)
 {
 	// Setting the alive mode registers
+#if defined(CONFIG_MACH_P1_CDMA)
+	s3c_gpio_cfgpin(GPIO_AP_PS_HOLD,S3C_GPIO_INPUT); // Not used in Froyo also but confingured as similar
+	s3c_gpio_setpull(GPIO_AP_PS_HOLD,S3C_GPIO_PULL_DOWN);	
+#endif
 	s3c_gpio_cfgpin(GPIO_ACC_INT, S3C_GPIO_INPUT);
 	s3c_gpio_setpull(GPIO_ACC_INT, S3C_GPIO_PULL_DOWN);
 //	s3c_gpio_setpin(GPIO_ACC_INT, 0);
@@ -6537,6 +6684,10 @@ void s3c_config_sleep_gpio(void)
 
 //	s3c_gpio_cfgpin(GPIO_ACCESSORY_INT, S3C_GPIO_INPUT);
 //	s3c_gpio_setpull(GPIO_ACCESSORY_INT, S3C_GPIO_PULL_NONE);
+#if defined(CONFIG_MACH_P1_CDMA)
+	s3c_gpio_cfgpin(GPIO_ACCESSORY_INT, S3C_GPIO_SFN(0xf));
+	s3c_gpio_setpull(GPIO_ACCESSORY_INT, S3C_GPIO_PULL_NONE);
+#endif
 //	s3c_gpio_setpin(GPIO_ACCESSORY_INT, 0);
 
 	if(HWREV >= 0x4) {  // NC
@@ -6609,7 +6760,11 @@ void s3c_config_sleep_gpio(void)
 
 	if(HWREV >= 12) {  // REMOTE_SENSE_IRQ (GT-P1000 Rev0.6)
 		s3c_gpio_cfgpin(GPIO_REMOTE_SENSE_IRQ, S3C_GPIO_INPUT);
+#if defined(CONFIG_MACH_P1_GSM)
 		s3c_gpio_setpull(GPIO_REMOTE_SENSE_IRQ, S3C_GPIO_PULL_NONE);
+#elif defined(CONFIG_MACH_P1_CDMA)
+		s3c_gpio_setpull(GPIO_REMOTE_SENSE_IRQ, S3C_GPIO_PULL_DOWN);
+#endif
 		//s3c_gpio_setpin(GPIO_REMOTE_SENSE_IRQ, 0);
 	}
 	else {
@@ -6685,7 +6840,11 @@ void s3c_config_sleep_gpio(void)
 #endif
 
 	s3c_gpio_cfgpin(GPIO_MSENSE_IRQ, S3C_GPIO_INPUT);
+#if defined(CONFIG_MACH_P1_GSM)
 	s3c_gpio_setpull(GPIO_MSENSE_IRQ, S3C_GPIO_PULL_NONE);
+#elif defined(CONFIG_MACH_P1_CDMA)
+	s3c_gpio_setpull(GPIO_MSENSE_IRQ, S3C_GPIO_PULL_UP);
+#endif
 	//s3c_gpio_setpin(GPIO_MSENSE_IRQ, 0);
 
 	if(HWREV >= 0x6) {  // SIM_DETECT
@@ -7351,7 +7510,11 @@ static unsigned int p1_get_hwrev(void)
 			sprintf(model_str, "P2");
 			break;
 		case 2:
+#if defined(CONFIG_MACH_P1_GSM)
 			sprintf(model_str, "GT-P1000");
+#elif defined(CONFIG_MACH_P1_CDMA)
+			sprintf(model_str, "SPH-P100");
+#endif
 			break;
 		case 3:
 			sprintf(model_str, "P1");
@@ -7509,7 +7672,9 @@ static void __init p1_machine_init(void)
 
 	herring_switch_init();
 
+#if defined(CONFIG_MACH_P1_GSM)
 	gps_gpio_init();
+#endif
 
 	uart_switch_init();
 
@@ -7618,7 +7783,11 @@ MACHINE_START(SMDKC110, "SMDKC110")
 #endif
 MACHINE_END
 
+#if defined(CONFIG_MACH_P1_GSM)
 MACHINE_START(P1, "GT-P1000")
+#elif defined(CONFIG_MACH_P1_CDMA)
+MACHINE_START(P1, "SPH-P100")
+#endif
 	.phys_io	= S3C_PA_UART & 0xfff00000,
 	.io_pg_offst	= (((u32)S3C_VA_UART) >> 18) & 0xfffc,
 	.boot_params	= S5P_PA_SDRAM + 0x100,

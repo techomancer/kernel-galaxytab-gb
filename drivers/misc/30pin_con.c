@@ -142,7 +142,7 @@ static ssize_t MHD_check_write(struct device *dev, struct device_attribute *attr
 	return size;
 }
 
-static DEVICE_ATTR(MHD_file, S_IRUGO , MHD_check_read, MHD_check_write);
+static DEVICE_ATTR(MHD_file, S_IRUGO | S_IWUSR | S_IWGRP, MHD_check_read, MHD_check_write);
 
 
 static ssize_t acc_check_read(struct device *dev, struct device_attribute *attr, char *buf)
@@ -241,11 +241,8 @@ static int connector_detect_change(void)
 /* Not used
 static void acc_con_detect_timer_handler(unsigned long arg)
 {
-	//ACC_CONDEV_DBG("");
-	ACC_CONDEV_DBG("S5P_NORMAL_CFG = 0x%08x",readl(S5P_NORMAL_CFG));
-	connector_detect_timer.expires = DETECTION_INTR_DELAY;
-	add_timer(&connector_detect_timer);
-	//acc_con_interrupt_init();
+	ACC_CONDEV_DBG("");
+	acc_con_interrupt_init();
 }
 */
 

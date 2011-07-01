@@ -41,6 +41,8 @@
 static struct workqueue_struct *workqueue;
 static struct wake_lock mmc_delayed_work_wake_lock;
 
+unsigned int wakelock_refs;
+
 /*
  * Enabling software CRCs on the data blocks can be a significant (30%)
  * performance cost, and for other reasons may not always be desired.
@@ -71,8 +73,14 @@ MODULE_PARM_DESC(
 static int mmc_schedule_delayed_work(struct delayed_work *work,
 				     unsigned long delay)
 {
+	int ret;
+	
 	wake_lock(&mmc_delayed_work_wake_lock);
-	return queue_delayed_work(workqueue, work, delay);
+	(wakelock_refs < 0) ? (wakelock_refs = 1) : wakelock_refs++;
+	ret = queue_delayed_work(workqueue, work, delay);
+	if (!ret && !--wakelock_refs)
+		wake_unlock(&mmc_delayed_work_wake_lock);
+	return ret;
 }
 
 /*
@@ -1011,20 +1019,20 @@ int mmc_resume_bus(struct mmc_host *host)
 
 #ifdef CONFIG_MACH_P1
 	if (!err) {
-#endif
-		if (host->bus_ops->detect && !host->bus_dead)
-			host->bus_ops->detect(host);
+#endif /* CONFIG_MACH_P1 */
+	if (host->bus_ops->detect && !host->bus_dead)
+		host->bus_ops->detect(host);
 #ifdef CONFIG_MACH_P1
 	} else {
 		printk(KERN_WARNING "%s: error %d during resume "
-	                                "(card was removed?)\n",
-	                                mmc_hostname(host), err);	
+					"(card was removed?)\n",
+					mmc_hostname(host), err);
 	}
-#endif
+#endif /* CONFIG_MACH_P1 */
 
 	mmc_bus_put(host);
 	printk("%s: Deferred resume completed\n", mmc_hostname(host));
-	return 0;
+	return err;
 }
 
 EXPORT_SYMBOL(mmc_resume_bus);
@@ -1211,15 +1219,19 @@ void mmc_rescan(struct work_struct *work)
 	mmc_power_off(host);
 
 out:
-#if defined(CONFIG_MACH_P1)
-        wake_lock_timeout(&mmc_delayed_work_wake_lock, 3*HZ);
-#else
-	if (extend_wakelock)
-		wake_lock_timeout(&mmc_delayed_work_wake_lock, HZ / 2);
-	else
-		wake_unlock(&mmc_delayed_work_wake_lock);
-#endif
-
+	if (--wakelock_refs > 0) {
+		pr_debug("%s: other host want the wakelock\n", mmc_hostname(host));
+	}
+	else {
+#if defined(CONFIG_MMC_BLOCK_DEFERRED_RESUME) && defined(CONFIG_MACH_P1)
+		wake_lock_timeout(&mmc_delayed_work_wake_lock, 3*HZ);
+#else /* CONFIG_MMC_BLOCK_DEFERRED_RESUME && CONFIG_MACH_P1 */
+		if (extend_wakelock)
+			wake_lock_timeout(&mmc_delayed_work_wake_lock, HZ / 2);
+		else
+			wake_unlock(&mmc_delayed_work_wake_lock);
+#endif /* CONFIG_MMC_BLOCK_DEFERRED_RESUME && CONFIG_MACH_P1 */
+	}
 	if (host->caps & MMC_CAP_NEEDS_POLL)
 		mmc_schedule_delayed_work(&host->detect, HZ);
 }
@@ -1241,7 +1253,8 @@ void mmc_stop_host(struct mmc_host *host)
 
 	if (host->caps & MMC_CAP_DISABLE)
 		cancel_delayed_work(&host->disable);
-	cancel_delayed_work(&host->detect);
+	if (cancel_delayed_work(&host->detect))
+		wakelock_refs--;
 	mmc_flush_scheduled_work();
 
 	/* clear pm flags now and let card drivers set them as needed */
@@ -1361,7 +1374,8 @@ int mmc_suspend_host(struct mmc_host *host)
 
 	if (host->caps & MMC_CAP_DISABLE)
 		cancel_delayed_work(&host->disable);
-	cancel_delayed_work(&host->detect);
+	if (cancel_delayed_work(&host->detect))
+		wakelock_refs--;
 	mmc_flush_scheduled_work();
 
 	mmc_bus_get(host);

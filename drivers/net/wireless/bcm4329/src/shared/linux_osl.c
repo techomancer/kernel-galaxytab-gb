@@ -163,6 +163,11 @@ osl_error(int bcmerror)
 }
 
 void * dhd_os_prealloc(int section, unsigned long size);
+
+#define WLAN_SKB_BUF_NUM	17
+extern struct sk_buff *wlan_static_skb[WLAN_SKB_BUF_NUM];
+
+
 osl_t *
 osl_attach(void *pdev, uint bustype, bool pkttag)
 {
@@ -229,27 +234,30 @@ osl_attach(void *pdev, uint bustype, bool pkttag)
 #endif
 		bcm_static_skb = (bcm_static_pkt_t *)((char *)bcm_static_buf + 2048);
 #ifdef CUSTOMER_HW_SAMSUNG
+		printk("use staic skb\n");
 		for (i = 0; i < MAX_STATIC_PKT_NUM; i++) {
-			bcm_static_skb->skb_4k[i] = dev_alloc_skb(DHD_SKB_1PAGE_BUFSIZE);
+			bcm_static_skb->skb_4k[i] = wlan_static_skb[i];
 			if (bcm_static_skb->skb_4k[i] == NULL) {
 				OSL_MSG_ERROR(("osl_attach: 4K memory allocation failure. idx=%d\n", i));
 				goto err;
 			}
 		}
-
+			
 		for (i = 0; i < MAX_STATIC_PKT_NUM; i++) {
-			bcm_static_skb->skb_8k[i] = dev_alloc_skb_kernel(DHD_SKB_2PAGE_BUFSIZE);
+			bcm_static_skb->skb_8k[i] =wlan_static_skb[i+MAX_STATIC_PKT_NUM];
 			if (bcm_static_skb->skb_8k[i] == NULL) {
 				OSL_MSG_ERROR(("osl_attach: 8K memory allocation failure. idx=%d\n", i));
 				goto err;
 			}
 		}
 
-		bcm_static_skb->skb_16k = dev_alloc_skb_kernel(DHD_SKB_4PAGE_BUFSIZE);
+		bcm_static_skb->skb_16k = wlan_static_skb[2*MAX_STATIC_PKT_NUM];
 		if (bcm_static_skb->skb_16k == NULL) {
 			OSL_MSG_ERROR(("osl_attach: 16K memory allocation failure. idx=%d\n", i));
 			goto err;
 		}
+
+	
 #else
 		skb_buff_ptr = dhd_os_prealloc(4, 0);
 
@@ -281,9 +289,6 @@ osl_detach(osl_t *osh)
 	if (bcm_static_skb) {
 		int i;
 		down(&bcm_static_skb->osl_pkt_sem);
-		for(i=0; i<MAX_STATIC_PKT_NUM*2+1; i++) {
-			dev_kfree_skb(bcm_static_skb->skb_4k[i]);
-		}
 		up(&bcm_static_skb->osl_pkt_sem);
 		bcm_static_skb = 0;
 	}
@@ -308,7 +313,6 @@ osl_pktget(osl_t *osh, uint len)
 
 	return ((void*) skb);
 }
-#ifdef DHD_USE_STATIC_BUF
 void*
 osl_pktget_kernel(osl_t *osh, uint len)
 {
@@ -324,7 +328,6 @@ osl_pktget_kernel(osl_t *osh, uint len)
 
 	return ((void*) skb);
 }
-#endif
 
 
 void

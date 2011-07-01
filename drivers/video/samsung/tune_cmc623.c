@@ -48,17 +48,24 @@
 
 //#define CMC623_TUNING
 
-#define END_SEQ		0xffff
-
-#ifdef CMC623_TUNING
+//#define MDNIE_TUNING_TUNEFILE_PATH	"/sdcard/sd/p1/mdnie_tune"
+//#define CMC623_PATH_TUNING_DATA       "/sdcard/cmc623_tune"
 #define CMC623_PATH_TUNING_DATA3  "/sdcard/external_sd/p1/mdnie_tune"
 #define CMC623_PATH_TUNING_DATA2  "/sdcard/external_sd/p1/1"
 #define CMC623_PATH_TUNING_DATA   "/sdcard/external_sd/p1/cmc623_tune"
 
+#define CMC623_ADDR		     0x70  /* slave addr for i2c */
+#define CMC623_DEVICE_ADDR   (0x38 << 1)
+#define CMC623_MAX_SETTINGS	 100
+#define CMC623_I2C_SPEED_KHZ 400
+
 #define klogi(fmt, arg...)  printk(KERN_INFO "%s: " fmt "\n" , __func__, ## arg)
 #define kloge(fmt, arg...)  printk(KERN_ERR "%s(%d): " fmt "\n" , __func__, __LINE__, ## arg)
 
-#define CMC623_MAX_SETTINGS	 100
+#define END_SEQ		0xffff
+
+
+#ifdef CMC623_TUNING
 static Cmc623RegisterSet Cmc623_TuneSeq[CMC623_MAX_SETTINGS];
 #endif
 
@@ -90,6 +97,7 @@ static const u8 all_regs_bank1[] = {
 
 };
 
+static struct i2c_client *g_client;
 #define I2C_M_WR 0 /* for i2c */
 #define I2c_M_RD 1 /* for i2c */
 
@@ -97,8 +105,6 @@ static const u8 all_regs_bank1[] = {
 struct cmc623_data {
 	struct i2c_client *client;
 };
-
-static DEFINE_SPINLOCK(timing_val_lock);
 
 static struct s3cfb_lcd_timing 	s3cfb_lcd_timing_data = {0,};
 
@@ -181,8 +187,8 @@ static Lcd_CMC623_UI_mode current_cmc623_UI = CMC623_UI_MODE; // mDNIe Set Statu
 static int current_cmc623_OutDoor_OnOff = FALSE;
 static int current_cmc623_CABC_OnOff = FALSE;
 
-#define CMC_FLAG_SETTING_FIRST		0x00000001
-#define CMC_FLAG_SETTING_BOOT		0x00000002
+static int setting_first = FALSE;
+static int setting_boot = FALSE;
 static int cmc623_bypass_mode = FALSE;
 static int current_autobrightness_enable = FALSE;
 static int cmc623_current_region_enable = FALSE;
@@ -218,13 +224,15 @@ extern Lcd_Type lcd_type;
 #define NUM_ITEM_POWER_LUT	9
 #define NUM_POWER_LUT	2
 
+static int current_power_lut_num = 0;
+
 static unsigned char cmc623_Power_LUT[NUM_POWER_LUT][NUM_ITEM_POWER_LUT]={
 	{ 0x46, 0x4b, 0x42, 0x50, 0x46, 0x43, 0x3e, 0x3b, 0x43 },
 	{ 0x35, 0x3a, 0x31, 0x3f, 0x35, 0x32, 0x2d, 0x2a, 0x32 },//video
 };
 
 static bool cmc623_I2cWrite16(unsigned char Addr, unsigned long Data);
-static void cmc623_cabc_pwm_brightness_reg(int value, int flag, int lut);
+static void cmc623_cabc_pwm_brightness_reg(int value);
 static void cmc623_manual_pwm_brightness_reg(int value);
 static void cmc623_manual_pwm_brightness_reg_nosync(int value);
 
@@ -244,6 +252,7 @@ static void cmc623_reg_unmask(void)
 
 static void cmc623_Color_White_Change(int value, int finalize)
 {
+//	mDNIe_data_type *mode = cmc623_white_values[((value+2)*LCD_TYPE_MAX*2)+(2*lcd_type)+cmc623_state.cabc_enabled];
 	mDNIe_data_type *mode = cmc623_white_val_values[(2*lcd_type)+cmc623_state.cabc_enabled];
 	mode += (value+4);
 	cmc623_state.white = value;
@@ -286,6 +295,7 @@ static void cmc623_Color_Black_Change(int value, int finalize)
 
 static void cmc623_Color_Saturation_Change(int value, int finalize)
 {
+//	mDNIe_data_type *mode = cmc623_saturation_values[((value+2)*LCD_TYPE_MAX*2)+(2*lcd_type)+cmc623_state.cabc_enabled];
 	mDNIe_data_type *mode = cmc623_saturation_val_values[(2*lcd_type)+cmc623_state.cabc_enabled];
 	mode += (value+4);
 	cmc623_state.saturation = value;
@@ -306,7 +316,9 @@ static void cmc623_Color_Saturation_Change(int value, int finalize)
 
 static int cmc623_OutDoor_Enable(int enable);
 
-static void cmc623_Mode_Change(mDNIe_data_type *mode, int cabc_enable, int flag, int lut)
+static mDNIe_data_type* current_cmc623_mode = 0;
+static void cmc623_Mode_Change_Compare(mDNIe_data_type *mode, int cabc_enable);
+static void cmc623_Mode_Change(mDNIe_data_type *mode, int cabc_enable)
 {
 	int check;
 
@@ -336,6 +348,10 @@ static void cmc623_Mode_Change(mDNIe_data_type *mode, int cabc_enable, int flag,
 		return;
 		}
 	
+//	if(current_cmc623_mode != 0)
+//		cmc623_Mode_Change_Compare(mode,cabc_enable);
+
+	current_cmc623_mode = mode;
 	while ( mode->addr != END_SEQ)
 	{
 		cmc623_I2cWrite16(mode->addr, mode->data);
@@ -344,27 +360,27 @@ static void cmc623_Mode_Change(mDNIe_data_type *mode, int cabc_enable, int flag,
 	}
 	
 	// brightness setting 
-	check = ((flag&CMC_FLAG_SETTING_FIRST) || cabc_enable != cmc623_state.cabc_enabled);
-	if(check || lut != cmc623_state.power_lut_num)
+	check = (setting_first || cabc_enable != cmc623_state.cabc_enabled);
+	if(check || current_power_lut_num != cmc623_state.power_lut_num)
 	{
 		if(cabc_enable)
 		{
 			//CABC brightness setting
-			cmc623_cabc_pwm_brightness_reg(cmc623_state.brightness, flag, lut);
+			cmc623_cabc_pwm_brightness_reg(cmc623_state.brightness);
 
 			cmc623_state.cabc_enabled = TRUE;
 		}
 		else
 		{
 			//Manual brightness setting
-			if((flag&CMC_FLAG_SETTING_FIRST)&&!(flag&CMC_FLAG_SETTING_BOOT))
+			if(setting_first&&!setting_boot)
 				cmc623_manual_pwm_brightness_reg_nosync(cmc623_state.brightness);
 			else
 				cmc623_manual_pwm_brightness_reg(cmc623_state.brightness);
 
 			cmc623_state.cabc_enabled = FALSE;
 		}
-		cmc623_state.power_lut_num = lut;
+		cmc623_state.power_lut_num = current_power_lut_num;
 	}
 	if(check)
 	{
@@ -379,10 +395,132 @@ static void cmc623_Mode_Change(mDNIe_data_type *mode, int cabc_enable, int flag,
 	}
 }
 
-static void cmc623_Set_Mode(Lcd_CMC623_UI_mode mode, int cmc623_CABC_OnOff, int flag)
+static void cmc623_Mode_Change_Compare(mDNIe_data_type *mode, int cabc_enable)
+{
+	int c = 0;
+#ifdef CMC623_TUNING
+	printk(KERN_ERR "%s ignore for tuning mode\n", __func__);
+	return;
+#endif
+
+	if(!p_cmc623_data)
+		{
+		printk(KERN_ERR "%s cmc623 is not initialized\n", __func__);
+		return;
+		}
+
+	if(cmc623_bypass_mode)
+		{
+		printk(KERN_WARNING "%s ignore for bypass mode\n", __func__);
+		return;
+		}
+
+	if(current_cmc623_mode == 0)
+	{
+		current_cmc623_mode = mode;
+		while ( mode->addr != END_SEQ)
+		{
+			cmc623_I2cWrite16(mode->addr, mode->data);
+			dprintk(KERN_INFO "[cmc623] a(0x%x),d(0x%x)\n",mode->addr, mode->data);	
+			mode++;
+		}
+	}
+	else
+	{
+		mDNIe_data_type *cmode = current_cmc623_mode;
+		current_cmc623_mode = mode;
+		while ( mode->addr != END_SEQ)
+		{
+			//printk("[cmc62345678] a(0x%x),a(0x%x)\n",mode->addr, cmode->addr);
+			if(mode->addr == 0x0000)
+			{
+				//cmc623_I2cWrite16(mode->addr, mode->data);
+				dprintk(KERN_INFO "[cmc623] a(0x%x),d(0x%x)\n",mode->addr, mode->data);	
+				//printk("[cmc6233333] a(0x%x),d(0x%x)\n",mode->addr, mode->data);	
+				mode++;
+				
+				if(cmode->addr == 0x0000)
+				{
+					cmode++;
+				}
+				else
+				{
+					while(cmode->addr != 0x0000)
+					{
+						cmode++;
+					}
+					cmode++;
+				}
+			}
+			else if(mode->addr == cmode->addr)
+			{
+				//printk("mode->addr == cmode->addr %x %x\n",mode->data,cmode->data);
+				if(mode->data != cmode->data)
+				{
+					//cmc623_I2cWrite16(mode->addr, mode->data);
+					dprintk(KERN_INFO "[cmc623] a(0x%x),d(0x%x)\n",mode->addr, mode->data);	
+					printk("[cmc6233333] a(0x%x),d(0x%x)\n",mode->addr, mode->data);	
+				}
+				
+				mode++;
+				cmode++;
+			}
+			else
+			{
+				if(mode->addr < cmode->addr)
+				{
+					//cmc623_I2cWrite16(mode->addr, mode->data);
+					dprintk(KERN_INFO "[cmc623] a(0x%x),d(0x%x)\n",mode->addr, mode->data);
+					printk("[cmc6233333] a(0x%x),d(0x%x)\n",mode->addr, mode->data);	
+					
+					mode++;
+				}
+				else
+				{
+					cmode++;
+				}
+			}
+			
+			c++;
+			if(c>60)
+				break;
+		}
+	}
+	
+	// brightness setting
+	if(setting_first || cabc_enable != cmc623_state.cabc_enabled)
+	{
+		if(cabc_enable)
+		{
+			//CABC brightness setting
+			cmc623_cabc_pwm_brightness_reg(cmc623_state.brightness);
+
+			cmc623_state.cabc_enabled = TRUE;
+		}
+		else
+		{
+			//Manual brightness setting
+			if(setting_first)
+				cmc623_manual_pwm_brightness_reg_nosync(cmc623_state.brightness);
+			else
+				cmc623_manual_pwm_brightness_reg(cmc623_state.brightness);
+
+			cmc623_state.cabc_enabled = FALSE;
+		}
+		cmc623_Color_White_Change(cmc623_state.white,FALSE);
+		cmc623_Color_Saturation_Change(cmc623_state.saturation,FALSE);
+		cmc623_Color_Black_Change(cmc623_state.black,FALSE);	
+		}
+	
+	if(!cmc623_OutDoor_Enable(current_cmc623_OutDoor_OnOff))
+	{
+		cmc623_reg_unmask();
+	}
+}
+
+static void cmc623_Set_Mode(Lcd_CMC623_UI_mode mode, int cmc623_CABC_OnOff)
 {
 	int cabc_enable=0;
-	int lut_num;
 	current_cmc623_UI = mode;
 	
 	if(cmc623_CABC_OnOff)
@@ -392,49 +530,49 @@ static void cmc623_Set_Mode(Lcd_CMC623_UI_mode mode, int cmc623_CABC_OnOff, int 
 		switch(mode)
 		{
 			case CMC623_UI_MODE:
-				lut_num = 0;
-				cmc623_Mode_Change(cmc623_values[CMC_UI_CABC*LCD_TYPE_MAX+lcd_type], TRUE, flag, lut_num);
+				current_power_lut_num = 0;
+				cmc623_Mode_Change(cmc623_values[CMC_UI_CABC*LCD_TYPE_MAX+lcd_type], TRUE);
 			break;
 
 			case CMC623_VIDEO_MODE:
-				lut_num = 1;
-				cmc623_Mode_Change(cmc623_values[CMC_Video_CABC*LCD_TYPE_MAX+lcd_type], TRUE, flag, lut_num);
+				current_power_lut_num = 1;
+				cmc623_Mode_Change(cmc623_values[CMC_Video_CABC*LCD_TYPE_MAX+lcd_type], TRUE);
 			break;
 
 			case CMC623_VIDEO_WARM_MODE:
-				lut_num = 1;
-				cmc623_Mode_Change(cmc623_values[CMC_Video_CABC*LCD_TYPE_MAX+lcd_type], TRUE, flag, lut_num);
+				current_power_lut_num = 1;
+				cmc623_Mode_Change(cmc623_values[CMC_Video_CABC*LCD_TYPE_MAX+lcd_type], TRUE);
 			break;
 
 			case CMC623_VIDEO_COLD_MODE:
-				lut_num = 1;
-				cmc623_Mode_Change(cmc623_values[CMC_Video_CABC*LCD_TYPE_MAX+lcd_type], TRUE, flag, lut_num);
+				current_power_lut_num = 1;
+				cmc623_Mode_Change(cmc623_values[CMC_Video_CABC*LCD_TYPE_MAX+lcd_type], TRUE);
 			break;
 			
 			case CMC623_CAMERA_MODE:
-				lut_num = 0;
+				current_power_lut_num = 0;
 				cabc_enable = 0;
-				cmc623_Mode_Change(cmc623_values[CMC_Camera*LCD_TYPE_MAX+lcd_type], FALSE, flag, lut_num);
+				cmc623_Mode_Change(cmc623_values[CMC_Camera*LCD_TYPE_MAX+lcd_type], FALSE);
 			break;
 
 			case CMC623_NAVI:
-				lut_num = 0;
-				cmc623_Mode_Change(cmc623_values[CMC_UI_CABC*LCD_TYPE_MAX+lcd_type], TRUE, flag, lut_num);
+				current_power_lut_num = 0;
+				cmc623_Mode_Change(cmc623_values[CMC_UI_CABC*LCD_TYPE_MAX+lcd_type], TRUE);
 			break;
 
 			case CMC623_DMB_MODE:
-				lut_num = 0;
-				cmc623_Mode_Change(cmc623_values[CMC_DMB_CABC*LCD_TYPE_MAX+lcd_type], TRUE, flag, lut_num);
+				current_power_lut_num = 0;
+				cmc623_Mode_Change(cmc623_values[CMC_DMB_CABC*LCD_TYPE_MAX+lcd_type], TRUE);
 			break;
 
 			case CMC623_VT_MODE:
-				lut_num = 0;
-				cmc623_Mode_Change(cmc623_values[CMC_VT_CABC*LCD_TYPE_MAX+lcd_type], TRUE, flag, lut_num);
+				current_power_lut_num = 0;
+				cmc623_Mode_Change(cmc623_values[CMC_VT_CABC*LCD_TYPE_MAX+lcd_type], TRUE);
 			break;
 
 			case CMC623_GALLERY_MODE:
-				lut_num = 0;
-				cmc623_Mode_Change(cmc623_values[CMC_GALLERY_CABC*LCD_TYPE_MAX+lcd_type], TRUE, flag, lut_num);
+				current_power_lut_num = 0;
+				cmc623_Mode_Change(cmc623_values[CMC_GALLERY_CABC*LCD_TYPE_MAX+lcd_type], TRUE);
 			break;
 		}
 
@@ -448,51 +586,51 @@ static void cmc623_Set_Mode(Lcd_CMC623_UI_mode mode, int cmc623_CABC_OnOff, int 
 		switch(mode)
 		{
 			case CMC623_UI_MODE:
-				lut_num = 0;
-				cmc623_Mode_Change(cmc623_values[CMC_UI*LCD_TYPE_MAX+lcd_type], FALSE, flag, lut_num);
+				current_power_lut_num = 0;
+				cmc623_Mode_Change(cmc623_values[CMC_UI*LCD_TYPE_MAX+lcd_type], FALSE);
 			break;
 
 			case CMC623_VIDEO_MODE:
-				lut_num = 1;
+				current_power_lut_num = 1;
 				cabc_enable = 0;
-				cmc623_Mode_Change(cmc623_values[CMC_Video*LCD_TYPE_MAX+lcd_type], FALSE, flag, lut_num);
+				cmc623_Mode_Change(cmc623_values[CMC_Video*LCD_TYPE_MAX+lcd_type], FALSE);
 			break;
 
 			case CMC623_VIDEO_WARM_MODE:
-				lut_num = 1;
+				current_power_lut_num = 1;
 				cabc_enable = 0;
-				cmc623_Mode_Change(cmc623_values[CMC_Video_CABC*LCD_TYPE_MAX+lcd_type], FALSE, flag, lut_num);
+				cmc623_Mode_Change(cmc623_values[CMC_Video_CABC*LCD_TYPE_MAX+lcd_type], FALSE);
 			break;
 
 			case CMC623_VIDEO_COLD_MODE:
-				lut_num = 1;
+				current_power_lut_num = 1;
 				cabc_enable = 0;
-				cmc623_Mode_Change(cmc623_values[CMC_Video_CABC*LCD_TYPE_MAX+lcd_type], FALSE, flag, lut_num);
+				cmc623_Mode_Change(cmc623_values[CMC_Video_CABC*LCD_TYPE_MAX+lcd_type], FALSE);
 			break;
 			
 			case CMC623_CAMERA_MODE:
-				lut_num = 0;
-				cmc623_Mode_Change(cmc623_values[CMC_Camera*LCD_TYPE_MAX+lcd_type], FALSE, flag, lut_num);
+				current_power_lut_num = 0;
+				cmc623_Mode_Change(cmc623_values[CMC_Camera*LCD_TYPE_MAX+lcd_type], FALSE);
 			break;
 
 			case CMC623_NAVI:
-				lut_num = 0;
-				cmc623_Mode_Change(cmc623_values[CMC_UI*LCD_TYPE_MAX+lcd_type], FALSE, flag, lut_num);
+				current_power_lut_num = 0;
+				cmc623_Mode_Change(cmc623_values[CMC_UI*LCD_TYPE_MAX+lcd_type], FALSE);
 			break;
 
 			case CMC623_DMB_MODE:
-				lut_num = 0;
-				cmc623_Mode_Change(cmc623_values[CMC_DMB*LCD_TYPE_MAX+lcd_type], FALSE, flag, lut_num);
+				current_power_lut_num = 0;
+				cmc623_Mode_Change(cmc623_values[CMC_DMB*LCD_TYPE_MAX+lcd_type], FALSE);
 			break;
 
 			case CMC623_VT_MODE:
-				lut_num = 0;
-				cmc623_Mode_Change(cmc623_values[CMC_VT*LCD_TYPE_MAX+lcd_type], FALSE, flag, lut_num);
+				current_power_lut_num = 0;
+				cmc623_Mode_Change(cmc623_values[CMC_VT*LCD_TYPE_MAX+lcd_type], FALSE);
 			break;
 
 			case CMC623_GALLERY_MODE:
-				lut_num = 0;
-				cmc623_Mode_Change(cmc623_values[CMC_GALLERY*LCD_TYPE_MAX+lcd_type], FALSE, flag, lut_num);
+				current_power_lut_num = 0;
+				cmc623_Mode_Change(cmc623_values[CMC_GALLERY*LCD_TYPE_MAX+lcd_type], FALSE);
 			break;
 		}
 		
@@ -508,12 +646,12 @@ void cmc623_Set_Mode_Ext(Lcd_CMC623_UI_mode mode, u8 mDNIe_Outdoor_OnOff)
 	mutex_lock(&cmc623_state_transaction_lock);
 	if(mDNIe_Outdoor_OnOff)
 	{
-		cmc623_Set_Mode(mode, current_cmc623_CABC_OnOff,0);
+		cmc623_Set_Mode(mode, current_cmc623_CABC_OnOff);
 		//current_cmc623_OutDoor_OnOff = TRUE;
 	}
 	else
 	{
-		cmc623_Set_Mode(mode, current_cmc623_CABC_OnOff,0);
+		cmc623_Set_Mode(mode, current_cmc623_CABC_OnOff);
 		//current_cmc623_OutDoor_OnOff = FALSE;
 	}
 	mutex_unlock(&cmc623_state_transaction_lock);
@@ -522,127 +660,148 @@ void cmc623_Set_Mode_Ext(Lcd_CMC623_UI_mode mode, u8 mDNIe_Outdoor_OnOff)
 }
 EXPORT_SYMBOL(cmc623_Set_Mode_Ext);
 
+#if 0
+static int cmc623_I2cWrite(struct i2c_client *client, u8 reg, u8 *data, u8 length)
+{
+	int ret, i;
+	u8 buf[length+1];
+	struct i2c_msg msg[1];
+
+	buf[0] = reg;
+	for(i=0; i<length; i++)
+    {   
+		buf[i+1] = *(data++);
+    }    
+
+	msg[0].addr = client->addr;
+	msg[0].flags = 0;
+	msg[0].len = length+1;
+	msg[0].buf = buf;
+
+	ret = i2c_transfer(client->adapter, msg, 1);
+	if (ret != 1) 
+    {   
+        return -EIO;
+    }
+
+	return 0;
+}
+#endif
+
 static bool cmc623_I2cWrite16( unsigned char Addr, unsigned long Data)
 {
-	int err;
-	struct i2c_msg msg[1];
-	unsigned char data[3];
-	struct i2c_client *p_client;
+    int err;
+    struct i2c_msg msg[1];
+    unsigned char data[3];
 
 	if(!p_cmc623_data)
 		{
-		printk(KERN_ERR "p_cmc623_data is NULL\n");
-		return -ENODEV;
+	    printk(KERN_ERR "p_cmc623_data is NULL\n");
+        return -ENODEV;
 		}
-	p_client = p_cmc623_data->client;		
+	g_client = p_cmc623_data->client;		
 
-	if((p_client == NULL))  
-		{
-		printk("cmc623_I2cWrite16 p_client is NULL\n");
-		return -ENODEV;
-		}
+    if( (g_client == NULL))  
+    {
+        printk("cmc623_I2cWrite16 g_client is NULL\n");
+        return -ENODEV;
+    }
 
-	if (!p_client->adapter) 
-		{
-		printk("cmc623_I2cWrite16 p_client->adapter is NULL\n");
-		return -ENODEV;
-		}
+    if (!g_client->adapter) 
+    {
+        printk("cmc623_I2cWrite16 g_client->adapter is NULL\n");
+        return -ENODEV;
+    }
 
 	if(TRUE == cmc623_state.suspended)
 		{
-		printk("cmc623 don't need writing while LCD off(a:%x,d:%x)\n", Addr, Data);
-		return 0;
+        printk("cmc623 don't need writing while LCD off(a:%x,d:%x)\n", Addr, Data);
+        return 0;
 		}
 
 	if(Addr == 0x0000)
-		{
+	{
 		if(Data == last_cmc623_Bank)
-			{
+		{
 			return 0;
-			}
+		}
 		last_cmc623_Bank = Data;
-		}
-	else if(Addr == 0x0001 && last_cmc623_Bank==0)
-		{
+	}
+	else if(Addr == 0x0001)
+	{
 		last_cmc623_Algorithm = Data;
-		}
+	}
+    
+    data[0] = Addr;
+    data[1] = ((Data >>8)&0xFF);
+    data[2] = (Data)&0xFF;
+    msg->addr = g_client->addr;
+    msg->flags = I2C_M_WR;
+    msg->len = 3;
+    msg->buf = data;
+    
+    err = i2c_transfer(g_client->adapter, msg, 1);
 
-	data[0] = Addr;
-	data[1] = ((Data >>8)&0xFF);
-	data[2] = (Data)&0xFF;
-	msg->addr 	= p_client->addr;
-	msg->flags 	= I2C_M_WR;
-	msg->len 	= 3;
-	msg->buf 	= data;
+    if (err >= 0) 
+    {
+        //printk("%s %d i2c transfer OK\n", __func__, __LINE__);/* add by inter.park */
+        return 0;
+    }
 
-	err = i2c_transfer(p_client->adapter, msg, 1);
-
-	if (err >= 0) 
-		{
-		//printk("%s %d i2c transfer OK\n", __func__, __LINE__);/* add by inter.park */
-		return 0;
-		}
-
-	printk("%s i2c transfer error:%d(a:%x)\n", __func__, err, Addr);/* add by inter.park */
-	return err;    
+    printk("%s i2c transfer error:%d(a:%x)\n", __func__, err, Addr);/* add by inter.park */
+    return err;    
 }
 
-static int cmc623_I2cRead16_direct(u8 reg, u16 *val, int isDirect)
+static int cmc623_I2cRead16(u8 reg, u16 *val)
 {
-	int      err;
-	struct   i2c_msg msg[2];
+    int      err;
+    struct   i2c_msg msg[2];
 	u8 regaddr = reg;
 	u8 data[2];
-	struct i2c_client *p_client;
 
 	if(!p_cmc623_data)
 		{
-		printk(KERN_ERR "%s p_cmc623_data is NULL\n", __func__);
-		return -ENODEV;
+	    printk(KERN_ERR "%s p_cmc623_data is NULL\n", __func__);
+        return -ENODEV;
 		}
-	p_client = p_cmc623_data->client;		
+	g_client = p_cmc623_data->client;		
 
-	if( (p_client == NULL))  
-		{
-		printk("%s p_client is NULL\n", __func__);
-		return -ENODEV;
-		}
+    if( (g_client == NULL))  
+    {
+        printk("%s g_client is NULL\n", __func__);
+        return -ENODEV;
+    }
 
-	if (!p_client->adapter) 
-		{
-		printk("%s p_client->adapter is NULL\n", __func__);
-		return -ENODEV;
-		}
-
-	if(!isDirect && regaddr == 0x0001 && last_cmc623_Algorithm!=0xffff && last_cmc623_Bank==0)
-		{
+    if (!g_client->adapter) 
+    {
+        printk("%s g_client->adapter is NULL\n", __func__);
+        return -ENODEV;
+    }
+	
+	if(regaddr == 0x0001)
+	{
 		*val = last_cmc623_Algorithm;
 		return 0;
-		}
+	}
+    
+    msg[0].addr   = g_client->addr;
+    msg[0].flags  = I2C_M_WR;
+    msg[0].len    = 1;
+    msg[0].buf    = &regaddr;
+    msg[1].addr   = g_client->addr;
+    msg[1].flags = I2C_M_RD;
+    msg[1].len   = 2;
+    msg[1].buf   = &data[0];
+    err = i2c_transfer(g_client->adapter, &msg[0], 2);
 
-	msg[0].addr   = p_client->addr;
-	msg[0].flags  = I2C_M_WR;
-	msg[0].len    = 1;
-	msg[0].buf    = &regaddr;
-	msg[1].addr   = p_client->addr;
-	msg[1].flags = I2C_M_RD;
-	msg[1].len   = 2;
-	msg[1].buf   = &data[0];
-	err = i2c_transfer(p_client->adapter, &msg[0], 2);
+    if (err >= 0) 
+    {
+    	*val = (data[0]<<8) | data[1];
+        return 0;
+    }
+    printk(KERN_ERR "%s %d i2c transfer error: %d\n", __func__, __LINE__, err);/* add by inter.park */
 
-	if (err >= 0) 
-		{
-		*val = (data[0]<<8) | data[1];
-		return 0;
-		}
-	printk(KERN_ERR "%s %d i2c transfer error: %d\n", __func__, __LINE__, err);/* add by inter.park */
-
-	return err;
-}
-
-static inline int cmc623_I2cRead16(u8 reg, u16 *val)
-{
-	return cmc623_I2cRead16_direct(reg, val, 0);
+    return err;
 }
 
 void cmc623_Set_Region(int enable, int hStart, int hEnd, int vStart, int vEnd)
@@ -680,7 +839,7 @@ void cmc623_autobrightness_enable(int enable)
 	if(current_cmc623_OutDoor_OnOff == TRUE && enable == FALSE)
 	{//outdoor mode off
 		current_cmc623_OutDoor_OnOff = FALSE;
-		cmc623_Set_Mode(current_cmc623_UI, current_cmc623_CABC_OnOff,0);
+		cmc623_Set_Mode(current_cmc623_UI, current_cmc623_CABC_OnOff);
 	}
 
 	current_autobrightness_enable = enable;
@@ -688,7 +847,7 @@ void cmc623_autobrightness_enable(int enable)
 }
 EXPORT_SYMBOL(cmc623_autobrightness_enable);
 
-static void cmc623_cabc_enable_flag(int enable, int flag)
+static void cmc623_cabc_enable_flag(int enable, int flag_first, int flag_boot)
 {
 	if(!p_cmc623_data)
 	{
@@ -697,7 +856,13 @@ static void cmc623_cabc_enable_flag(int enable, int flag)
 
 	printk(KERN_INFO "%s(%d)\n", __func__, enable);
 
-	cmc623_Set_Mode(current_cmc623_UI, enable,flag);
+	setting_first = flag_first;
+	setting_boot = flag_boot;
+	
+	cmc623_Set_Mode(current_cmc623_UI, enable);
+	
+	setting_first = FALSE;
+	setting_boot = FALSE;
 }
 
 void cmc623_cabc_enable(int enable)
@@ -710,7 +875,7 @@ void cmc623_cabc_enable(int enable)
 	printk(KERN_INFO "%s(%d)\n", __func__, enable);
 
 	mutex_lock(&cmc623_state_transaction_lock);
-	cmc623_Set_Mode(current_cmc623_UI, enable, 0);
+	cmc623_Set_Mode(current_cmc623_UI, enable);
 	mutex_unlock(&cmc623_state_transaction_lock);
 }
 EXPORT_SYMBOL(cmc623_cabc_enable);
@@ -721,26 +886,32 @@ EXPORT_SYMBOL(cmc623_cabc_enable);
 bool cmc623_tune(unsigned long num) // P1_LSJ : DE08
 {
 	unsigned int i;
-
+    
+	//  num = NV_ARRAY_SIZE(Cmc623_TuneSeq);
 	printk("========== Start of tuning CMC623 Jun  ==========\n");
 
 	for (i=0; i<num; i++) 
-	{
+    {
 		printk("[%2d] Writing => reg: 0x%2x, data: 0x%4lx\n", i+1, Cmc623_TuneSeq[i].RegAddr, Cmc623_TuneSeq[i].Data);
 
 		if (0 > cmc623_I2cWrite16(Cmc623_TuneSeq[i].RegAddr, Cmc623_TuneSeq[i].Data)) 
-		{
+
+        // cmc623_I2cWrite(struct i2c_client *client, u8 reg, u8 *data, u8 length)
+        //if (!cmc623_I2cWrite16(Cmc623_TuneSeq[i].RegAddr, Cmc623_TuneSeq[i].Data)) 
+        {
 			printk("I2cWrite16 failed\n");
 			return 0;
 		}
-		else 
-		{
+        else 
+        {
 			printk("I2cWrite16 succeed\n");
-		}
+        }
 
-		if ( Cmc623_TuneSeq[i].RegAddr == CMC623_REG_SWRESET && Cmc623_TuneSeq[i].Data == 0xffff ) 
-		{
-			mdelay(3);
+        if ( Cmc623_TuneSeq[i].RegAddr == CMC623_REG_SWRESET && Cmc623_TuneSeq[i].Data == 0xffff ) 
+        {
+			// NvOdmOsWaitUS(3000);  // 3ms  
+			// msleep(3);
+            mdelay(3);
 		}
 	}
 	printk("==========  End of tuning CMC623 Jun  ==========\n");
@@ -760,14 +931,14 @@ static int parse_text(char * src, int len)
 	c = src;
 	count = 0;
 	sstart = c;
-
+    
 	for(i=0; i<len; i++,c++) 
-	{
+    {
 		char a = *c;
 		if(a=='\r' || a=='\n') 
-		{
+        {
 			if(c > sstart) 
-			{
+            {
 				str_line[count] = sstart;
 				count++;
 			}
@@ -775,9 +946,9 @@ static int parse_text(char * src, int len)
 			sstart = c+1;
 		}
 	}
-
+    
 	if(c > sstart) 
-	{
+    {
 		str_line[count] = sstart;
 		count++;
 	}
@@ -785,12 +956,12 @@ static int parse_text(char * src, int len)
 	printk("----------------------------- Total number of lines:%d\n", count);
 
 	for(i=0; i<count; i++) 
-	{
+    {
 		printk("line:%d, [start]%s[end]\n", i, str_line[i]);
 		ret = sscanf(str_line[i], "0x%x,0x%x\n", &data1, &data2);
 		printk("Result => [0x%2x 0x%4x] %s\n", data1, data2, (ret==2)?"Ok":"Not available");
 		if(ret == 2) 
-		{   
+        {   
 			Cmc623_TuneSeq[index].RegAddr = (unsigned char)data1;
 			Cmc623_TuneSeq[index++].Data  = (unsigned long)data2;
 		}
@@ -814,25 +985,25 @@ static int cmc623_load_data(void)
 
 	filp = filp_open(CMC623_PATH_TUNING_DATA, O_RDONLY, 0);
 	if(IS_ERR(filp)) 
-	{
+    {
 		kloge("file open error:%d", (s32)filp);
 
 		return -1;
 
 		/*		
-		filp = filp_open(CMC623_PATH_TUNING_DATA2, O_RDONLY, 0);
-		if(IS_ERR(filp)) 
-		{
-		kloge("file open error2");
+        filp = filp_open(CMC623_PATH_TUNING_DATA2, O_RDONLY, 0);
+        if(IS_ERR(filp)) 
+        {
+            kloge("file open error2");
 
-		filp = filp_open(CMC623_PATH_TUNING_DATA3, O_RDONLY, 0);
-		if(IS_ERR(filp)) 
-		{
-		kloge("file open error3");
-		return -1;
-		}
-		}
-		*/
+            filp = filp_open(CMC623_PATH_TUNING_DATA3, O_RDONLY, 0);
+            if(IS_ERR(filp)) 
+            {
+                kloge("file open error3");
+                return -1;
+            }
+        }
+        */
 	}
 
 	l = filp->f_path.dentry->d_inode->i_size;
@@ -841,19 +1012,19 @@ static int cmc623_load_data(void)
 	//dp = kmalloc(l, GFP_KERNEL);
 	dp = kmalloc(l+10, GFP_KERNEL);		// add cushion
 	if(dp == NULL) 
-	{
+    {
 		kloge("Out of Memory!");
 		filp_close(filp, current->files);
 		return -1;
 	}
 	pos = 0;
 	memset(dp, 0, l);
-	kloge("== Before vfs_read ======");
+    kloge("== Before vfs_read ======");
 	ret = vfs_read(filp, (char __user *)dp, l, &pos);   // P1_LSJ : DE08 : ¿©±â¼­ Á×À½ 
-	kloge("== After vfs_read ======");
+    kloge("== After vfs_read ======");
 
 	if(ret != l) 
-	{
+    {
 		kloge("<CMC623> Failed to read file (ret = %d)", ret);
 		kfree(dp);
 		filp_close(filp, current->files);
@@ -865,20 +1036,20 @@ static int cmc623_load_data(void)
 	set_fs(fs);
 
 	for(i=0; i<l; i++)
-	{   
+    {   
 		printk("%x ", dp[i]);
-	}
+    }
 	printk("\n");
 
 	num = parse_text(dp, l);
 
 	if(!num) 
-	{
+    {
 		kloge("Nothing to parse!");
 		kfree(dp);
 		return -1;
 	}
-
+		
 	printk("------ Jun Total number of parsed lines: %d\n", num);
 	cmc623_tune(num);
 
@@ -1232,7 +1403,7 @@ static void cmc623_set_tuning (void)
 }
 
 // value: 0 ~ 100
-static void cmc623_cabc_pwm_brightness_reg(int value, int flag, int lut)
+static void cmc623_cabc_pwm_brightness_reg(int value)
 {
 	u32 reg;
 	unsigned char * p_plut;
@@ -1244,18 +1415,18 @@ static void cmc623_cabc_pwm_brightness_reg(int value, int flag, int lut)
 		return;
 		}
 
-	p_plut = cmc623_Power_LUT[lut];
+	p_plut = cmc623_Power_LUT[current_power_lut_num];
 
 	min_duty = p_plut[7] * value / 100;
 	if(min_duty < 4)
-		{
+	{
 		if(value == 0)
 			reg = 0x4000;
 		else
 			reg = 0x4000 | ((max(1,(value*p_plut[3]/100)))<<4);		
-		}
+	}
 	else
-		{
+	{
 		cmc623_I2cWrite16(0x76,(p_plut[0] * value / 100) << 8 | (p_plut[1] * value / 100));	//PowerLUT
 		cmc623_I2cWrite16(0x77,(p_plut[2] * value / 100) << 8 | (p_plut[3] * value / 100));	//PowerLUT
 		cmc623_I2cWrite16(0x78,(p_plut[4] * value / 100) << 8 | (p_plut[5] * value / 100));	//PowerLUT
@@ -1263,12 +1434,12 @@ static void cmc623_cabc_pwm_brightness_reg(int value, int flag, int lut)
 		cmc623_I2cWrite16(0x7a,(p_plut[8] * value / 100) << 8);	//PowerLUT
 
 		reg = 0x5000 | (value<<4);
-		}
+	}
 	
-	if(flag&CMC_FLAG_SETTING_FIRST)
-		{
+	if(setting_first)
+	{
 		reg |= 0x8000;
-		}
+	}
 
 	cmc623_I2cWrite16(0xB4, reg);			//pwn duty
 }
@@ -1276,6 +1447,7 @@ static void cmc623_cabc_pwm_brightness_reg(int value, int flag, int lut)
 // value: 0 ~ 100
 static void cmc623_cabc_pwm_brightness(int value)
 {
+	u32 reg;
 
 	if(!p_cmc623_data)
 		{
@@ -1285,7 +1457,7 @@ static void cmc623_cabc_pwm_brightness(int value)
 
 	cmc623_I2cWrite16(0x00,0x0000);	//BANK 0
 
-	cmc623_cabc_pwm_brightness_reg(value,0,cmc623_state.power_lut_num);
+	cmc623_cabc_pwm_brightness_reg(value);
 
 	cmc623_I2cWrite16(0x28,0x0000);
 }
@@ -1343,17 +1515,17 @@ static void cmc623_manual_pwm_brightness(int value)
 }
 
 u16 ove_target_value=0;
-static void ove_workqueue_func(struct work_struct *data)
+static void ove_workqueue_func(void* data)
 {
 	int i = 0;
 	for(i=0; i<=8; ++i)
 	{
 		mutex_lock(&cmc623_state_transaction_lock);
 		if(cmc623_state.suspended == TRUE)
-		{
+			{
 			mutex_unlock(&cmc623_state_transaction_lock);
 			return;
-		}
+			}
 
 		cmc623_I2cWrite16(0x0054, (((ove_target_value >> 8) * i / 8) << 8) | ((ove_target_value & 0x00ff) * i / 8));
 		cmc623_reg_unmask();
@@ -1366,6 +1538,7 @@ static void ove_workqueue_func(struct work_struct *data)
 static int cmc623_OutDoor_Enable(int enable)
 {
 	u16 i2cdata=0;
+	int i=0;
 
 	if(enable)
 	{
@@ -1457,10 +1630,14 @@ void tune_cmc623_pwm_brightness(int value)
 	if(data == 1280 && current_autobrightness_enable)
 	{//outdoor mode on
 		cmc623_OutDoor_Enable(TRUE);
+		//current_cmc623_OutDoor_OnOff = TRUE;
+		//cmc623_Set_Mode(current_cmc623_UI, current_cmc623_CABC_OnOff);
 	}
 	else if (current_cmc623_OutDoor_OnOff == TRUE && data < 1280)
 	{//outdoor mode off
 		cmc623_OutDoor_Enable(FALSE);
+		//current_cmc623_OutDoor_OnOff = FALSE;
+		//cmc623_Set_Mode(current_cmc623_UI, current_cmc623_CABC_OnOff);
 	}
 
 	data >>= 4;
@@ -1485,23 +1662,23 @@ EXPORT_SYMBOL(tune_cmc623_pwm_brightness);
 
 static int tune_cmc623_hw_rst()
 {
-	if (gpio_is_valid(GPIO_CMC_BYPASS)) 
-		{
-		gpio_direction_output(GPIO_CMC_BYPASS, GPIO_LEVEL_LOW);
-		}
-	s3c_gpio_setpull(GPIO_CMC_BYPASS, S3C_GPIO_PULL_NONE);
-	gpio_set_value(GPIO_CMC_BYPASS, GPIO_LEVEL_HIGH);
-	msleep(2);
+    if (gpio_is_valid(GPIO_CMC_BYPASS)) 
+    {
+        gpio_direction_output(GPIO_CMC_BYPASS, GPIO_LEVEL_LOW);
+    }
+    s3c_gpio_setpull(GPIO_CMC_BYPASS, S3C_GPIO_PULL_NONE);
+    gpio_set_value(GPIO_CMC_BYPASS, GPIO_LEVEL_HIGH);
+    msleep(2);
 
-	if (gpio_is_valid(GPIO_CMC_RST)) 
-		{
-		gpio_direction_output(GPIO_CMC_RST, GPIO_LEVEL_HIGH);
-		}
-	s3c_gpio_setpull(GPIO_CMC_RST, S3C_GPIO_PULL_NONE);
-	gpio_set_value(GPIO_CMC_RST, GPIO_LEVEL_LOW);
-	msleep(4);
-	gpio_set_value(GPIO_CMC_RST, GPIO_LEVEL_HIGH);
-	msleep(5);
+    if (gpio_is_valid(GPIO_CMC_RST)) 
+    {
+        gpio_direction_output(GPIO_CMC_RST, GPIO_LEVEL_HIGH);
+    }
+    s3c_gpio_setpull(GPIO_CMC_RST, S3C_GPIO_PULL_NONE);
+    gpio_set_value(GPIO_CMC_RST, GPIO_LEVEL_LOW);
+    msleep(4);
+    gpio_set_value(GPIO_CMC_RST, GPIO_LEVEL_HIGH);
+    msleep(5);
 
 	return 0;
 }
@@ -1520,7 +1697,7 @@ int tune_cmc623_suspend()
 
 	mutex_lock(&cmc623_state_transaction_lock);
 	// CMC623[0x07] := 0x0004
-	cmc623_I2cWrite16(0x07, 0x0004);
+    cmc623_I2cWrite16(0x07, 0x0004);
 
 	cmc623_state.suspended = TRUE;
 	mutex_unlock(&cmc623_state_transaction_lock);
@@ -1547,7 +1724,7 @@ int tune_cmc623_suspend()
 
 	// Reset chip
 	//gpio_set_value(GPIO_CMC_RST, GPIO_LEVEL_LOW);
-	msleep(100);
+    msleep(100);
 
 	return 0;
 }
@@ -1616,8 +1793,6 @@ int tune_cmc623_resume()
 	msleep(1);	//udelay(300);
 
 	mutex_lock(&cmc623_state_transaction_lock);
-	last_cmc623_Algorithm = 0xffff;
-	last_cmc623_Bank = 0xffff;
 	cmc623_state.suspended = FALSE;
 
 	// set registers using I2C
@@ -1628,8 +1803,10 @@ int tune_cmc623_resume()
 #endif 
 
 	// restore mode & cabc status
+	//setting_first = TRUE;
 	cmc623_state.brightness = 0;
-	cmc623_cabc_enable_flag(cmc623_state.cabc_enabled, CMC_FLAG_SETTING_FIRST);
+	cmc623_cabc_enable_flag(cmc623_state.cabc_enabled, TRUE, FALSE);
+	//setting_first = FALSE;
 	mutex_unlock(&cmc623_state_transaction_lock);
 
 	msleep(10);
@@ -1640,17 +1817,13 @@ EXPORT_SYMBOL(tune_cmc623_resume);
 
 void tune_cmc623_set_lcddata(const struct s3cfb_lcd * pdata)
 {
-	spin_lock(&timing_val_lock);
 	s3cfb_lcd_timing_data = pdata->timing;
-	spin_unlock(&timing_val_lock);
 }
 EXPORT_SYMBOL(tune_cmc623_set_lcddata);
 
 void tune_cmc623_set_lcd_pclk(int pclk)
 {
-	spin_lock(&timing_val_lock);
 	set_cmc623_val_for_pclk(pclk);
-	spin_unlock(&timing_val_lock);
 }
 EXPORT_SYMBOL(tune_cmc623_set_lcd_pclk);
 
@@ -1664,13 +1837,13 @@ static ssize_t tune_cmc623_show(struct device *dev, struct device_attribute *att
 #endif
 
 	if(ret<0)
-	{   
-		return sprintf(buf, "FAIL\n");
-	}
-	else
-	{   
-		return sprintf(buf, "OK\n");
-	}
+    {   
+        return sprintf(buf, "FAIL\n");
+    }
+    else
+    {   
+        return sprintf(buf, "OK\n");
+    }
 }
 
 static ssize_t tune_cmc623_store(struct device *dev, struct device_attribute *attr,const char *buf, size_t size)
@@ -1682,7 +1855,7 @@ static DEVICE_ATTR(tune, S_IRUGO | S_IWUSR, tune_cmc623_show, tune_cmc623_store)
 
 static ssize_t set_reg_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
-	return sprintf(buf, "<addr> <data> ex)0x00, 0x0000\n");
+    return sprintf(buf, "<addr> <data> ex)0x00, 0x0000\n");
 }
 
 static ssize_t set_reg_store(struct device *dev, struct device_attribute *attr,const char *buf, size_t size)
@@ -1720,7 +1893,7 @@ static ssize_t read_reg_show(struct device *dev, struct device_attribute *attr, 
 		ret = cmc623_I2cWrite16(0x00, 0x0001);
 	else if(read_reg_address > 0x0)
 		ret = cmc623_I2cWrite16(0x00, 0x0000);
-	ret = cmc623_I2cRead16_direct(read_reg_address, &data2, TRUE);
+	ret = cmc623_I2cRead16(read_reg_address, &data2);
 	printk("data:0x%04x\n", data2);
 
     return sprintf(buf, "addr:0x%04x, data:0x%04x\n", read_reg_address, data2);
@@ -1742,7 +1915,7 @@ static ssize_t read_reg_store(struct device *dev, struct device_attribute *attr,
 			ret = cmc623_I2cWrite16(0x00, 0x0001);
 		else if(read_reg_address > 0x0)
 			ret = cmc623_I2cWrite16(0x00, 0x0000);
-		ret = cmc623_I2cRead16_direct(read_reg_address, &data2, TRUE);
+		ret = cmc623_I2cRead16(read_reg_address, &data2);
 		printk("data:0x%04x\n", data2);
 		}
 	else
@@ -1781,7 +1954,7 @@ static ssize_t show_regs_store(struct device *dev, struct device_attribute *attr
 				}
 			else
 				{
-				ret = cmc623_I2cRead16_direct(all_regs_bank0[i], &data2, TRUE);
+				ret = cmc623_I2cRead16(all_regs_bank0[i], &data2);
 				printk("addr:0x%04x, data:0x%04x\n", all_regs_bank0[i], data2);
 				}
 			}
@@ -1795,7 +1968,7 @@ static ssize_t show_regs_store(struct device *dev, struct device_attribute *attr
 				}
 			else
 				{
-				ret = cmc623_I2cRead16_direct(all_regs_bank1[i], &data2, TRUE);
+				ret = cmc623_I2cRead16(all_regs_bank1[i], &data2);
 				printk("addr:0x%04x, data:0x%04x\n", all_regs_bank1[i], data2);
 				}
 			}
@@ -1814,14 +1987,15 @@ static DEVICE_ATTR(show_regs, 0664, show_regs_show, show_regs_store);
 
 static ssize_t set_bypass_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
+
 	if(cmc623_bypass_mode)
-	{   
-		return sprintf(buf, "bypass\n");
-	}
-	else
-	{   
-		return sprintf(buf, "normal\n");
-	}
+    {   
+        return sprintf(buf, "bypass\n");
+    }
+    else
+    {   
+        return sprintf(buf, "normal\n");
+    }
 }
 
 static ssize_t set_bypass_store(struct device *dev, struct device_attribute *attr,const char *buf, size_t size)
@@ -1846,13 +2020,13 @@ static ssize_t set_bypass_store(struct device *dev, struct device_attribute *att
 			mode++;
 			}
 		
-			// brightness setting
-		{
-		//Manual brightness setting
-		cmc623_manual_pwm_brightness_reg(cmc623_state.brightness);
+		// brightness setting
+			{
+			//Manual brightness setting
+			cmc623_manual_pwm_brightness_reg(cmc623_state.brightness);
 
-		cmc623_state.cabc_enabled = FALSE;
-		}
+			cmc623_state.cabc_enabled = FALSE;
+			}
 		
 		cmc623_reg_unmask();
 		
@@ -1861,7 +2035,9 @@ static ssize_t set_bypass_store(struct device *dev, struct device_attribute *att
 		{
 		cmc623_bypass_mode = FALSE;
 
-		cmc623_cabc_enable_flag(cmc623_state.cabc_enabled, CMC_FLAG_SETTING_FIRST);
+		//setting_first = TRUE;
+		cmc623_cabc_enable_flag(cmc623_state.cabc_enabled, TRUE, FALSE);
+		//setting_first = FALSE;
 		}
 	mutex_unlock(&cmc623_state_transaction_lock);
 	
@@ -1959,10 +2135,10 @@ static int cmc623_i2c_probe(struct i2c_client *client, const struct i2c_device_i
 
 	data = kzalloc(sizeof(struct cmc623_data), GFP_KERNEL);
 	if (!data)
-	{
+    {
 		dev_err(&client->dev, "Failed to allocate memory\n");
 		return -ENOMEM;
-	}    
+    }    
 
 	data->client = client;
 	i2c_set_clientdata(client, data);
@@ -1980,12 +2156,12 @@ static int cmc623_i2c_probe(struct i2c_client *client, const struct i2c_device_i
 	#endif
 
 //	tune_cmc623_hw_rst();
-//	cmc623_tuning_set();
+	//cmc623_tuning_set();
 //	cmc623_initial_set();
 #ifdef CMC623_TUNING
 	cmc623_set_tuning();	//for test
 #endif
-	cmc623_cabc_enable_flag(cmc623_state.cabc_enabled, CMC_FLAG_SETTING_FIRST|CMC_FLAG_SETTING_BOOT);
+	cmc623_cabc_enable_flag(cmc623_state.cabc_enabled, TRUE, TRUE);
 	
 	return 0;
 }
@@ -2017,7 +2193,7 @@ struct i2c_driver sec_tune_cmc623_i2c_driver =
 		.name	= "sec_tune_cmc623_i2c",
         .owner = THIS_MODULE,
 	},
-	.probe 	= cmc623_i2c_probe,
+	.probe 		= cmc623_i2c_probe,
 	.remove 	= __devexit_p(cmc623_i2c_remove),
 	.id_table	= sec_tune_cmc623_ids,
 };
@@ -2029,12 +2205,12 @@ static int __devinit cmc623_probe(struct platform_device *pdev)
 {
 	int ret=0;
 
-	printk("**** < cmc623_probe >      ***********\n");
+    printk("**** < cmc623_probe >      ***********\n");
 
 	tune_cmc623_dev = device_create(sec_class, NULL, 0, NULL, "sec_tune_cmc623");
 
 	if (IS_ERR(tune_cmc623_dev)) 
-	{
+    {
 		printk("Failed to create device!");
 		ret = -1;
 	}
@@ -2071,23 +2247,23 @@ static int __devinit cmc623_probe(struct platform_device *pdev)
 		ret = -1;
 	}
 	
-	printk("<sec_tune_cmc623_i2c_driver Add START> \n");
-	ret = i2c_add_driver(&sec_tune_cmc623_i2c_driver);    // P1_LSJ : DE07 
-	printk("cmc623_init Return value  (%d)\n", ret);
-
+    printk("<sec_tune_cmc623_i2c_driver Add START> \n");
+    ret = i2c_add_driver(&sec_tune_cmc623_i2c_driver);    // P1_LSJ : DE07 
+    printk("cmc623_init Return value  (%d)\n", ret);
+	
 	ove_wq = create_singlethread_workqueue("ove_wq");
 	INIT_WORK(&work_ove, ove_workqueue_func);
 
-	//	ret = cmc623_gamma_set();                             // P1_LSJ : DE19
-	//    printk("cmc623_gamma_set Return value  (%d)\n", ret);
-	printk("<sec_tune_cmc623_i2c_driver Add END>   \n");
+//	ret = cmc623_gamma_set();                             // P1_LSJ : DE19
+//    printk("cmc623_gamma_set Return value  (%d)\n", ret);
+    printk("<sec_tune_cmc623_i2c_driver Add END>   \n");
 
 	return ret;
 }
 
 static int __devexit cmc623_remove(struct platform_device *pdev)
 {
-	if (ove_wq)
+    if (ove_wq)
 		destroy_workqueue(ove_wq);
 
 	i2c_del_driver(&sec_tune_cmc623_i2c_driver);
@@ -2098,10 +2274,10 @@ static int __devexit cmc623_remove(struct platform_device *pdev)
 struct platform_driver sec_tune_cmc623 =  {
 	.driver = {
 		.name = "sec_tune_cmc623",
-		.owner  = THIS_MODULE,
+        .owner  = THIS_MODULE,
 	},
-	.probe  = cmc623_probe,
-	.remove = cmc623_remove,
+    .probe  = cmc623_probe,
+    .remove = cmc623_remove,
 };
 
 static int __init cmc623_init(void)

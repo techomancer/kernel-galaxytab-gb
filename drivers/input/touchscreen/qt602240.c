@@ -55,7 +55,6 @@ static void qt602240_late_resume(struct early_suspend *);
 #endif	/* CONFIG_HAS_EARLYSUSPEND */
 
 static int qt602240_write_object(struct qt602240_data *data, u8 type, u8 offset, u8 val);
-		
 static bool cal_check_flag = false;
 static unsigned int qt_time_point=0;
 static unsigned int qt_time_diff=0;
@@ -1040,8 +1039,8 @@ static void check_chip_calibration(struct qt602240_data *data)
         /* process counters and decide if we must re-calibrate or if cal was good */
         if((tch_ch>0) && (atch_ch == 0))  //jwlee change.
         {
-	anti_cnt = 0;
-                bad_cnt = 0;        
+            anti_cnt = 0;
+            bad_cnt = 0;        
             /* cal was good - don't need to check any more */
             //hugh 0312
             if(!check_abs_time())
@@ -1103,7 +1102,7 @@ static void check_chip_calibration(struct qt602240_data *data)
             if(anti_cnt > 5)
             {
               printk(KERN_DEBUG "[TSP] anti_cnt:%d\n", anti_cnt);
-	anti_cnt = 0;
+                anti_cnt = 0;
                 calibrate_chip(data);
                 qt_timer_state=0;
             }

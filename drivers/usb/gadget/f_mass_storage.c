@@ -315,8 +315,37 @@ static const char fsg_string_interface[] = "Mass Storage";
 #define FSG_NO_OTG               1
 #define FSG_NO_INTR_EP           1
 
+#define BULK_BUFFER_SIZE           4096
+
+/* SCSI device types */
+#define TYPE_DISK       0x00
+#define TYPE_CDROM      0x05
+
+/* TODO: flush after every 4 meg of writes to avoid excessive block level caching */
+#define MAX_UNFLUSHED_BYTES (4 * 1024 * 1024)
+#undef MAX_UNFLUSHED_BYTES
+
+/*-------------------------------------------------------------------------*/
+
+#define DRIVER_NAME             "usb_mass_storage"
+
+#define UMS_DISK_LUNS   1
+
+#ifdef _ENABLE_CDFS_
+#define UMS_CDROM_LUNS  1
+#define UMS_CDROM_ID    0
+#else
+#define UMS_CDROM_LUNS  0
+#endif
+
+#define FSG_MAX_LUNS 		(UMS_DISK_LUNS + UMS_CDROM_LUNS)
+
+/************* LNT ************  end */
+
 #include "storage_common.c"
 
+struct fsg_common *cdfs_fsg_common;
+EXPORT_SYMBOL(cdfs_fsg_common);
 
 /*-------------------------------------------------------------------------*/
 
@@ -384,6 +413,8 @@ struct fsg_common {
 	char inquiry_string[8 + 16 + 4 + 1];
 
 	struct kref		ref;
+
+        struct device           dev;
 };
 
 
@@ -1170,6 +1201,9 @@ static int do_inquiry(struct fsg_common *common, struct fsg_buffhd *bh)
 	struct fsg_lun *curlun = common->curlun;
 	u8	*buf = (u8 *) bh->buf;
 
+    static char vendor_id[9] = "SAMSUNG ";
+    static char product_disk_id[17];
+    static char product_cdrom_id[17];
 	if (!curlun) {		/* Unsupported LUNs are okay */
 		common->bad_lun_okay = 1;
 		memset(buf, 0, 36);
@@ -1178,15 +1212,74 @@ static int do_inquiry(struct fsg_common *common, struct fsg_buffhd *bh)
 		return 36;
 	}
 
-	buf[0] = curlun->cdrom ? TYPE_CDROM : TYPE_DISK;
+	memset(buf, 0, 8);      /* Non-removable, direct-access device */
+	
+#if (UMS_CDROM_LUNS > 0)
+        buf[0] = (curlun->id == UMS_CDROM_ID ? TYPE_CDROM : TYPE_DISK);
+#else
+        buf[0] = TYPE_DISK;
+#endif
+
+//	buf[0] = curlun->cdrom ? TYPE_CDROM : TYPE_DISK;
 	buf[1] = curlun->removable ? 0x80 : 0;
 	buf[2] = 2;		/* ANSI SCSI level 2 */
 	buf[3] = 2;		/* SCSI-2 INQUIRY data format */
 	buf[4] = 31;		/* Additional length */
-	buf[5] = 0;		/* No special options */
-	buf[6] = 0;
-	buf[7] = 0;
-	memcpy(buf + 8, common->inquiry_string, sizeof common->inquiry_string);
+//	buf[5] = 0;		/* No special options */
+//	buf[6] = 0;
+//	buf[7] = 0;
+
+#if 1 // samsung feature
+    /* Internal Device : Phone, External Device : Card*/
+    switch(curlun->id) {
+#if (UMS_CDROM_LUNS > 0)
+    case UMS_CDROM_ID:
+        strlcpy(product_cdrom_id, "UMS CD-ROM", 11);
+        break;
+#endif
+
+#if (UMS_DISK_LUNS > 1) // 2 : internal & external SD
+    case UMS_CDROM_LUNS:
+#if defined(CONFIG_MACH_P1_GSM)
+        strlcpy(product_disk_id, "GT-P1000", 9);
+#elif defined(CONFIG_MACH_P1_CDMA)
+        strlcpy(product_disk_id, "SPH-P100", 9);
+#endif
+        break;
+
+    case (UMS_CDROM_LUNS + 1):
+#if defined(CONFIG_MACH_P1_GSM)
+        strlcpy(product_disk_id, "GT-P1000 Card", 14);
+#elif defined(CONFIG_MACH_P1_CDMA)
+        strlcpy(product_disk_id, "SPH-P100 Card", 14);
+#endif
+        break;
+#else // 1 : external SD
+    case UMS_CDROM_LUNS:
+#if defined(CONFIG_MACH_P1_GSM)
+        strlcpy(product_disk_id, "GT-P1000 Card", 14);
+#elif defined(CONFIG_MACH_P1_CDMA)
+        strlcpy(product_disk_id, "SPH-P100 Card", 14);
+#endif
+        break;
+#endif	
+    default:
+        break;
+    }
+
+#if (UMS_CDROM_LUNS > 0)
+    sprintf(buf + 8, "%-8s%-16s", vendor_id,
+            (curlun->id == UMS_CDROM_ID ? product_cdrom_id : product_disk_id));
+#else
+    sprintf(buf + 8, "%-8s%-16s", vendor_id, product_disk_id);
+#endif
+#else
+    sprintf(buf + 8, "%-8s%-16s", vendor_id,
+            product_disk_id);
+#endif
+
+
+//	memcpy(buf + 8, common->inquiry_string, sizeof common->inquiry_string);
 	return 36;
 }
 
@@ -1419,7 +1512,7 @@ static int do_start_stop(struct fsg_common *common)
 		curlun->sense_data = SS_INVALID_FIELD_IN_CDB;
 		return -EINVAL;
 	}
-
+	#if 0 //according to froyo
 	if (!start) {
 		/* Are we allowed to unload the media? */
 		if (curlun->prevent_medium_removal) {
@@ -1427,6 +1520,7 @@ static int do_start_stop(struct fsg_common *common)
 			curlun->sense_data = SS_MEDIUM_REMOVAL_PREVENTED;
 			return -EINVAL;
 		}
+	#endif
 		if (loej) {	/* Simulate an unload/eject */
 			up_read(&common->filesem);
 			down_write(&common->filesem);
@@ -1434,6 +1528,7 @@ static int do_start_stop(struct fsg_common *common)
 			up_write(&common->filesem);
 			down_read(&common->filesem);
 		}
+	#if 0
 	} else {
 
 		/* Our emulation doesn't support mounting; the medium is
@@ -1443,6 +1538,7 @@ static int do_start_stop(struct fsg_common *common)
 			return -EINVAL;
 		}
 	}
+	#endif
 	return 0;
 }
 
@@ -1666,7 +1762,7 @@ static int finish_reply(struct fsg_common *common)
 			/* Nothing to send */
 
 		/* If there's no residue, simply send the last buffer */
-		} else if (common->residue == 0) {
+		} else if (1) {  //(common->residue == 0) { //nandu
 			bh->inreq->zero = 0;
 			START_TRANSFER_OR(common, bulk_in, bh->inreq,
 					  &bh->inreq_busy, &bh->state)
@@ -2036,6 +2132,9 @@ static int do_scsi_command(struct fsg_common *common)
 		break;
 
 	case SC_READ_HEADER:
+#if (UMS_CDROM_LUNS > 0)
+                if (common->curlun->id != UMS_CDROM_ID) goto unknown_cmnd;
+#endif
 		if (!common->curlun || !common->curlun->cdrom)
 			goto unknown_cmnd;
 		common->data_size_from_cmnd =
@@ -2048,6 +2147,9 @@ static int do_scsi_command(struct fsg_common *common)
 		break;
 
 	case SC_READ_TOC:
+#if (UMS_CDROM_LUNS > 0)
+                if (common->curlun->id != UMS_CDROM_ID) goto unknown_cmnd;
+#endif
 		if (!common->curlun || !common->curlun->cdrom)
 			goto unknown_cmnd;
 		common->data_size_from_cmnd =
@@ -2155,7 +2257,7 @@ static int do_scsi_command(struct fsg_common *common)
 		/* Fall through */
 
 	default:
-unknown_cmnd:
+	unknown_cmnd:
 		common->data_size_from_cmnd = 0;
 		sprintf(unknown, "Unknown x%02x", common->cmnd[0]);
 		reply = check_command(common, common->cmnd_size,
@@ -2644,6 +2746,46 @@ static int fsg_main_thread(void *common_)
 
 /*************************** DEVICE ATTRIBUTES ***************************/
 
+static ssize_t fsg_store_file(struct device *dev, struct device_attribute *attr,
+                              const char *buf, size_t count)
+{
+        struct fsg_lun  *curlun = fsg_lun_from_dev(dev);
+        struct rw_semaphore     *filesem = dev_get_drvdata(dev);
+        struct fsg_common  *fsg = (struct fsg_common *) cdfs_fsg_common ;//container_of(dev, struct fsg_common, dev);  // dev_get_drvdata(dev);
+        int             rc = 0;
+
+#ifndef CONFIG_USB_ANDROID_MASS_STORAGE
+        /* disabled in android because we need to allow closing the backing file
+         * if the media was removed
+         */
+        if (curlun->prevent_medium_removal && fsg_lun_is_open(curlun)) {
+                LDBG(curlun, "eject attempt prevented\n");
+                return -EBUSY;                          /* "Door is locked" */
+        }
+#endif
+      /* Remove a trailing newline */
+        if (count > 0 && buf[count-1] == '\n')
+                ((char *) buf)[count-1] = 0;            /* Ugh! */
+
+        /* Eject current medium */
+        down_write(filesem);
+        if (fsg_lun_is_open(curlun)) {
+                fsg_lun_close(curlun);
+                curlun->unit_attention_data = SS_MEDIUM_NOT_PRESENT;
+        }
+
+        /* Load new medium */
+        if (count > 0 && buf[0]) {
+                rc = fsg_lun_open(curlun, buf);
+                if (rc == 0)
+                        curlun->unit_attention_data =
+                                        SS_NOT_READY_TO_READY_TRANSITION;
+        }
+
+        up_write(filesem);
+        return (rc < 0 ? rc : count);
+}
+
 /* Write permission is checked per LUN in store_*() functions. */
 static DEVICE_ATTR(ro, 0644, fsg_show_ro, fsg_store_ro);
 static DEVICE_ATTR(file, 0644, fsg_show_file, fsg_store_file);
@@ -2698,6 +2840,7 @@ static struct fsg_common *fsg_common_init(struct fsg_common *common,
 		common->free_storage_on_release = 0;
 	}
 
+	cdfs_fsg_common = (struct fsg_commom *) common;
 	common->private_data = cfg->private_data;
 
 	common->gadget = gadget;
@@ -2729,6 +2872,14 @@ static struct fsg_common *fsg_common_init(struct fsg_common *common,
 		curlun->ro = lcfg->cdrom || lcfg->ro;
 		curlun->removable = lcfg->removable;
 		curlun->dev.release = fsg_lun_release;
+                /* lun 0 : cdrom. read-only
+                   lun 1 : internel storage. read-write
+                   lun 2 : externel sd-card. read-write */
+		curlun->id = i;
+
+#if (UMS_CDROM_LUNS > 0)
+                curlun->ro = (curlun->id == UMS_CDROM_ID ? 1 : 0);
+#endif
 
 #ifdef CONFIG_USB_ANDROID_MASS_STORAGE
 		/* use "usb_mass_storage" platform device as parent */
@@ -3157,8 +3308,13 @@ static int fsg_probe(struct platform_device *pdev)
 	if (nluns > FSG_MAX_LUNS)
 		nluns = FSG_MAX_LUNS;
 	fsg_cfg.nluns = nluns;
-	for (i = 0; i < nluns; i++)
+	for (i = 0; i < nluns; i++) {
+#if (UMS_CDROM_LUNS > 0)
+		if(i == UMS_CDROM_ID)
+			fsg_cfg.luns[i].cdrom = 1;
+#endif
 		fsg_cfg.luns[i].removable = 1;
+	}
 
 	fsg_cfg.vendor_name = pdata->vendor;
 	fsg_cfg.product_name = pdata->product;

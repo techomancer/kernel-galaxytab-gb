@@ -212,6 +212,13 @@ dhdcdc_set_ioctl(dhd_pub_t *dhd, int ifidx, uint cmd, void *buf, uint len)
 		goto done;
 	}
 #endif
+#ifdef CONFIG_CONTROL_PM
+	if((g_PMcontrol == TRUE) && (cmd == WLC_SET_PM)) {
+		printk("SET PM ignore! !!!!!!!!!!!!!!!!!!!!!!! \r\n");
+		goto done;
+	}
+#endif
+
 
 	memset(msg, 0, sizeof(cdc_ioctl_t));
 
@@ -219,7 +226,7 @@ dhdcdc_set_ioctl(dhd_pub_t *dhd, int ifidx, uint cmd, void *buf, uint len)
 	msg->len = htol32(len);
 	msg->flags = (++prot->reqid << CDCF_IOC_ID_SHIFT) | CDCF_IOC_SET;
 	CDC_SET_IF_IDX(msg, ifidx);
-	msg->flags = htol32(msg->flags);
+	msg->flags |= htol32(msg->flags);
 
 	if (buf)
 		memcpy(prot->buf, buf, len);

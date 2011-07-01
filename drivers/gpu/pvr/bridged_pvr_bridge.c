@@ -27,7 +27,7 @@
 
 
 #include <stddef.h>
-
+#include <linux/reboot.h>
 #include "img_defs.h"
 #include "services.h"
 #include "pvr_bridge_km.h"
@@ -3096,7 +3096,7 @@ static PVRSRV_ERROR ModifyCompleteSyncOpsCallBack(IMG_PVOID		pvParam,
 				goto OpFlushedComplete;
 			}
 			PVR_DPF((PVR_DBG_WARNING, "ModifyCompleteSyncOpsCallBack: waiting for current Ops to flush"));
-			OSWaitus(MAX_HW_TIME_US/WAIT_TRY_COUNT);
+			OSSleepms(1);
 		} END_LOOP_UNTIL_TIMEOUT();
 		
 		PVR_DPF((PVR_DBG_ERROR, "ModifyCompleteSyncOpsCallBack: timeout whilst waiting for current Ops to flush."));
@@ -3783,7 +3783,15 @@ IMG_INT BridgedDispatchKM(PVRSRV_PER_PROCESS_DATA * psPerProc,
 			{
 				PVR_DPF((PVR_DBG_ERROR, "%s: Initialisation failed.  Driver unusable.",
 						 __FUNCTION__));
-				goto return_fault;
+				
+				// a small trap so we do no lock up
+				// clear everything
+				ReleaseHandleBatch(psPerProc);
+				PVR_DPF((PVR_DBG_ERROR, "%s: Could not initialise graphics subsystem, rebooting!",
+						__FUNCTION__));
+				// make a soft reboot
+				emergency_restart();
+				//goto return_fault;
 			}
 		}
 		else

@@ -1711,8 +1711,69 @@ int fimc_streamon_capture(void *fh)
 			camera_back_check = 0;
 			mutex_unlock(&ctrl->v4l2_lock);
 			return ret;
-		}
-	}
+		} else {
+        		if ((ctrl->vt_mode == 1 || ctrl->vt_mode == 2)
+        			&& (fimc->active_camera == CAMERA_ID_FRONT)
+        			&& (ctrl->cap->rotate == 90 || ctrl->cap->rotate == 270)) {
+        			ctrl->cam->window.left = 136;
+        			ctrl->cam->window.top = 0;
+        			ctrl->cam->window.width = 368;
+        			ctrl->cam->window.height = 480;
+        			ctrl->cam->width = cam_frmsize.discrete.width;
+        			ctrl->cam->height = cam_frmsize.discrete.height;
+        			printk("line(%d):vtmode = %d, rotate = %d, device = front(%d), cam->width = %d, cam->height = %d\n", __LINE__, ctrl->vt_mode, ctrl->cap->rotate, fimc->active_camera, ctrl->cam->width, ctrl->cam->height);
+        		} else if ((ctrl->vt_mode == 1 || ctrl->vt_mode == 2)
+        				&& (fimc->active_camera == CAMERA_ID_BACK || fimc->active_camera == CAMERA_ID_MAX)
+        				&& (ctrl->cap->rotate == 90 || ctrl->cap->rotate == 270)) {
+        			ctrl->cam->window.left = 176;
+        			ctrl->cam->window.top = 0;
+        			ctrl->cam->window.width = 448;
+        			ctrl->cam->window.height = 592;
+        			ctrl->cam->width = cam_frmsize.discrete.width;
+        			ctrl->cam->height = cam_frmsize.discrete.height;
+        			printk("line(%d):vtmode = %d, rotate = %d, device = rear(%d), cam->width = %d, cam->height = %d\n", __LINE__, ctrl->vt_mode, ctrl->cap->rotate, fimc->active_camera, ctrl->cam->width, ctrl->cam->height);
+        		} else if ((ctrl->vt_mode == 0)
+        				&& (fimc->active_camera == CAMERA_ID_FRONT)
+        				&& (cam_frmsize.discrete.width == 640 && cam_frmsize.discrete.height == 480)) {
+        			ctrl->cam->window.left = 136;
+        			ctrl->cam->window.top = 0;
+        			ctrl->cam->window.width = 368;
+        			ctrl->cam->window.height = 480;
+        			ctrl->cam->width = cam_frmsize.discrete.width;
+        			ctrl->cam->height = cam_frmsize.discrete.height;
+        			printk("line(%d):vtmode = %d, rotate = %d, device = front(%d), cam->width = %d, cam->height = %d\n", __LINE__, ctrl->vt_mode, ctrl->cap->rotate, fimc->active_camera, ctrl->cam->width, ctrl->cam->height);
+        		} else if ((ctrl->vt_mode == 0)
+        				&& (fimc->active_camera == CAMERA_ID_FRONT)
+        				&& ((cam_frmsize.discrete.width == 960) && (cam_frmsize.discrete.height == 1280))) {
+        			ctrl->cam->window.left = 280;
+        			ctrl->cam->window.top = 0;
+        			ctrl->cam->window.width = 720;
+        			ctrl->cam->window.height = 960;
+        			ctrl->cam->width = cam_frmsize.discrete.width;
+        			ctrl->cam->height = cam_frmsize.discrete.height;
+        			printk("line(%d):vtmode = %d, rotate = %d, device = front(%d), cam->width = %d, cam->height = %d\n", __LINE__, ctrl->vt_mode, ctrl->cap->rotate, fimc->active_camera, ctrl->cam->width, ctrl->cam->height);
+        		} else if ((ctrl->vt_mode == 0)
+        				&& (fimc->active_camera == CAMERA_ID_FRONT)
+        				&& ((cam_frmsize.discrete.width == 1280) && (cam_frmsize.discrete.height == 960))) {
+        			ctrl->cam->window.left = 280;
+        			ctrl->cam->window.top = 0;
+        			ctrl->cam->window.width = 720;
+        			ctrl->cam->window.height = 960;
+        			ctrl->cam->width = cam_frmsize.discrete.width;
+        			ctrl->cam->height = cam_frmsize.discrete.height;
+        			printk("line(%d):vtmode = %d, rotate = %d, device = front(%d), cam->width = %d, cam->height = %d\n", __LINE__, ctrl->vt_mode, ctrl->cap->rotate, fimc->active_camera, ctrl->cam->width, ctrl->cam->height);
+        		} else {
+        			ctrl->cam->width = cam_frmsize.discrete.width;
+        			ctrl->cam->height = cam_frmsize.discrete.height;
+        			ctrl->cam->window.left = 0;
+        			ctrl->cam->window.top = 0;
+        			ctrl->cam->window.width = ctrl->cam->width;
+        			ctrl->cam->window.height = ctrl->cam->height;
+        			printk("line(%d):vtmode = %d, rotate = %d, device = %d, cam->width = %d, cam->height = %d\n", __LINE__, ctrl->vt_mode, ctrl->cap->rotate, fimc->active_camera, ctrl->cam->width, ctrl->cam->height);
+        		}
+                }
+	
+        }
 
 	if (ctrl->id != 2 &&
 			ctrl->cap->fmt.colorspace != V4L2_COLORSPACE_JPEG) {
@@ -1747,6 +1808,11 @@ int fimc_streamon_capture(void *fh)
 			fimc_hwset_output_yuv(ctrl, cap->fmt.pixelformat);
 
 		fimc_hwset_output_size(ctrl, cap->fmt.width, cap->fmt.height);
+
+		if ((fimc->active_camera == CAMERA_ID_FRONT) && (ctrl->vt_mode == 0)) {
+			ctrl->cap->rotate = 270;
+			dev_err(ctrl->dev, "%s, rotate 270", __func__);
+		}
 
 		fimc_hwset_output_scan(ctrl, &cap->fmt);
 		fimc_hwset_output_rot_flip(ctrl, cap->rotate, cap->flip);

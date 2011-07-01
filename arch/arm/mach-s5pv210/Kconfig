@@ -156,7 +156,13 @@ config MACH_P1
 	select S5PV210_POWER_DOMAIN
 	help
 	  Machine support for P1
-	  
+
+config MACH_P1_GSM
+	bool "P1 GSM locale"
+
+config MACH_P1_CDMA
+	bool "P1 CDMA locale"
+
 config S5PV210_SETUP_FB
 	bool
 	depends on FB_S3C

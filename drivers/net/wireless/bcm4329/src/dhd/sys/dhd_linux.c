@@ -268,6 +268,8 @@ typedef struct dhd_info {
 	struct semaphore dpc_sem;
 	struct completion dpc_exited;
 
+	int hang_was_sent; /* flag that message was send at least once */
+
 	/* Thread to issue ioctl for multicast */
 	long sysioc_pid;
 	struct semaphore sysioc_sem;
@@ -637,7 +639,7 @@ dhd_timeout_expired(dhd_timeout_t *tmo)
 		init_waitqueue_head(&delay_wait);
 		add_wait_queue(&delay_wait, &wait);
 		set_current_state(TASK_INTERRUPTIBLE);
-		schedule_timeout(msecs_to_jiffies(1));
+		schedule_timeout(1);
 		pending = signal_pending(current);
 		remove_wait_queue(&delay_wait, &wait);
 		set_current_state(TASK_RUNNING);
@@ -976,6 +978,7 @@ _dhd_sysioc_thread(void *data)
 #endif
 
 	DAEMONIZE("dhd_sysioc");
+
 	while (down_interruptible(&dhd->sysioc_sem) == 0) {
 		dhd_os_deepsleep_wait();
 		dhd_os_deepsleep_block();
@@ -1113,6 +1116,11 @@ dhd_start_xmit(struct sk_buff *skb, struct net_device *net)
 		DHD_ERROR(("%s: xmit rejected pub.up=%d busstate=%d \n",
 			__FUNCTION__, dhd->pub.up, dhd->pub.busstate));
 		netif_stop_queue(net);
+		/* Send Event when bus down detected during data session */
+		if (dhd->pub.busstate == DHD_BUS_DOWN)  {
+			DHD_ERROR(("%s: Event RELOAD send up\n", __FUNCTION__));
+			net_os_send_hang_message(net);
+		}
 		return -ENODEV;
 	}
 
@@ -1791,9 +1799,11 @@ dhd_ioctl_entry(struct net_device *net, struct ifreq *ifr, int cmd)
 
 	WAKE_UNLOCK(&dhd->pub, WAKE_LOCK_IOCTL);
 	WAKE_LOCK_DESTROY(&dhd->pub, WAKE_LOCK_IOCTL);
-	if (bcmerror == -ETIMEDOUT) {
+	if ((bcmerror == -ETIMEDOUT) ||
+		((dhd->pub.busstate == DHD_BUS_DOWN) && (!dhd->pub.dongle_reset))) {
 		DHD_ERROR(("%s: Event RELOAD send up\n", __FUNCTION__));
-		wl_iw_send_priv_event(net, "RELOAD");
+		net_os_send_hang_message(net);
+		/* wl_iw_send_priv_event(net, "RELOAD"); */
 	}
 done:
 	if (!bcmerror && buf && ioc.buf) {
@@ -2162,11 +2172,7 @@ dhd_read_macaddr(dhd_info_t *dhd)
 	char randommac[3]    = {0};
 	char buf[18]         = {0};
 	char* filepath       = "/data/.mac.info";
-#ifdef CONFIG_TARGET_LOCALE_VZW
-    char* nvfilepath       = "/data/misc/wifi/.nvmac.info";
-#else
     char* nvfilepath       = "/data/.nvmac.info";
-#endif
 	int ret = 0;
 
 	//MAC address copied from nv
@@ -2355,6 +2361,8 @@ dhd_bus_start(dhd_pub_t *dhdp)
 	setbit(dhdp->eventmask, WLC_E_TXFAIL);
 	setbit(dhdp->eventmask, WLC_E_JOIN_START);
 	setbit(dhdp->eventmask, WLC_E_SCAN_COMPLETE);
+        setbit(dhdp->eventmask, WLC_E_DEAUTH);
+	setbit(dhdp->eventmask, WLC_E_RELOAD);
 
 	dhdp->pktfilter_count = 1;
 	/* Setup filter to allow only unicast */
@@ -2716,9 +2724,9 @@ dhd_module_init(void)
 	 * Kernel MMC sdio device callback registration
 	 */
 	if (down_timeout(&dhd_registration_sem,  msecs_to_jiffies(DHD_REGISTRATION_TIMEOUT)) != 0) {
+		error = -EINVAL;
 		DHD_ERROR(("%s: sdio_register_driver timeout\n", __FUNCTION__));
 		dhd_bus_unregister();
-		goto faild;
 	}
 #endif
 	return error;
@@ -3121,6 +3129,19 @@ dhd_dev_init_ioctl(struct net_device *dev)
 	dhd_preinit_ioctls(&dhd->pub);
 }
 
+int net_os_send_hang_message(struct net_device *dev)
+{
+	dhd_info_t *dhd = *(dhd_info_t **)netdev_priv(dev);
+	int ret = 0;
+
+	if (dhd) {
+		if (!dhd->hang_was_sent) {
+			dhd->hang_was_sent = 1;
+			ret = wl_iw_send_priv_event(dev, "RELOAD");
+		}
+	}
+	return ret;
+}
 static int
 dhd_get_pend_8021x_cnt(dhd_info_t *dhd)
 {

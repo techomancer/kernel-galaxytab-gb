@@ -313,9 +313,9 @@ static ssize_t store_whitelist(struct device *d,
 
 static DEVICE_ATTR(version, S_IRUGO, show_version, NULL);
 static DEVICE_ATTR(latency, S_IRUGO, show_latency, NULL);
-static DEVICE_ATTR(waketime, S_IRUSR | S_IRGRP | S_IWUSR | S_IWGRP, show_waketime, store_waketime);
+static DEVICE_ATTR(waketime, S_IRUGO | S_IWUSR | S_IWGRP, show_waketime, store_waketime);
 static DEVICE_ATTR(debug, S_IRUGO | S_IWUSR, show_debug, store_debug);
-static DEVICE_ATTR(whitelist, S_IWUSR, NULL, store_whitelist);
+static DEVICE_ATTR(whitelist, S_IRUSR | S_IWUSR, NULL, store_whitelist);
 
 static struct attribute *svnet_attributes[] = {
 	&dev_attr_version.attr,

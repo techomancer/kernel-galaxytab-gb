@@ -36,7 +36,7 @@ obj-$(CONFIG_MACH_P1)	+= mach-p1.o p1-rfkill.o sec_switch.o
 #obj-$(CONFIG_MACH_P1)	+= herring-btlpm.o
 obj-$(CONFIG_MACH_P1)	+= herring-watchdog.o
 obj-$(CONFIG_MACH_P1)	+= herring-panel.o
-obj-$(CONFIG_MACH_P1)	+= dev-p1-phone.o
+obj-$(CONFIG_MACH_P1_GSM)	+= dev-p1-phone.o
 
 obj-$(CONFIG_CPU_FREQ)		+= cpu-freq.o
 obj-$(CONFIG_S5PV210_SETUP_SDHCI)       += setup-sdhci.o
@@ -44,7 +44,7 @@ obj-$(CONFIG_S5PV210_SETUP_SDHCI)       += setup-sdhci.o
 # device support
 
 obj-y				+= dev-audio.o
-obj-y				+= dev-fiqdbg.o
+obj-$(CONFIG_FIQ_DEBUGGER)	+= dev-fiqdbg.o
 obj-$(CONFIG_S3C64XX_DEV_SPI)	+= dev-spi.o
 obj-$(CONFIG_S5PC110_DEV_ONENAND) += dev-onenand.o
 

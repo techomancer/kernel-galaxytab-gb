@@ -34,7 +34,7 @@
 #include <linux/usb/ch9.h>
 #include <linux/usb/composite.h>
 #include <linux/usb/gadget.h>
-
+#include <mach/param.h>
 #include "gadget_chips.h"
 
 /*
@@ -72,6 +72,8 @@ MODULE_DESCRIPTION("Android Composite USB Driver");
 MODULE_LICENSE("GPL");
 MODULE_VERSION("1.0");
 
+int currentusbstatus;
+int askon_status;
 static const char longname[] = "Gadget Android";
 
 /* Default vendor and product IDs, overridden by platform data */
@@ -152,7 +154,7 @@ static struct list_head _functions = LIST_HEAD_INIT(_functions);
 static int _registered_function_count = 0;
 
 #ifdef CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE
-static void samsung_enable_function(int mode);
+void samsung_enable_function(int mode);
 #endif
 
 static struct android_usb_function *get_function(const char *name)
@@ -539,32 +541,38 @@ void android_enable_function(struct usb_function *f, int enable)
 	int product_id = 0;
 	int ret = -1;
 	CSY_DBG_ESS("++ f->name=%s enable=%d\n", f->name, enable);
+	askon_status = 0;
+	printk(KERN_INFO "(android) f->name=%s enable=%d \n", f->name, enable);
 
 	if(enable) {
 		if (!strcmp(f->name, "acm")) {
 			ret = set_product(dev, USBSTATUS_SAMSUNG_KIES);
 			if (ret != -1)
 				dev->current_usb_mode = USBSTATUS_SAMSUNG_KIES;
+				currentusbstatus =  dev->current_usb_mode;
 		}
 		if (!strcmp(f->name, "adb")) {
 			ret = set_product(dev, USBSTATUS_ADB);
 			if (ret != -1)
 				dev->debugging_usb_mode = 1; /* save debugging status */
+				currentusbstatus =  USBSTATUS_ADB ;
 		}
 		if (!strcmp(f->name, "mtp")) {
 			ret = set_product(dev, USBSTATUS_MTPONLY);
 			if (ret != -1)
 				dev->current_usb_mode = USBSTATUS_MTPONLY;
+				currentusbstatus =  dev->current_usb_mode;
 		}
-#if !defined(CONFIG_ARIES_NTT) // disable tethering		
+#if !defined(CONFIG_ARIES_NTT) // disable tethering
 		if (!strcmp(f->name, "rndis")) {
 			ret = set_product(dev, USBSTATUS_VTP);
 		}
-#endif		
+#endif
 		if (!strcmp(f->name, "usb_mass_storage")) {
 			ret = set_product(dev, USBSTATUS_UMS);
 			if (ret != -1)
 				dev->current_usb_mode = USBSTATUS_UMS;
+				currentusbstatus =  dev->current_usb_mode;
 		}
 
 	}
@@ -574,8 +582,10 @@ void android_enable_function(struct usb_function *f, int enable)
 		else
 		ret = set_product(dev, dev->current_usb_mode);
 
-		if(!strcmp(f->name, "adb")) 
+		if(!strcmp(f->name, "adb")) {
 			dev->debugging_usb_mode = 0;
+			currentusbstatus = 0;
+		}
 	} /* if(enable) */
 
 	if(ret == -1) {
@@ -660,7 +670,7 @@ void android_enable_function(struct usb_function *f, int enable)
  * Written by SoonYong,Cho  (Fri 5, Nov 2010)
  */
 #ifdef CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE
-static void samsung_enable_function(int mode)
+void samsung_enable_function(int mode)
 {
 	struct android_dev *dev = _android_dev;
 	int product_id = 0;
@@ -685,12 +695,12 @@ static void samsung_enable_function(int mode)
 			CSY_DBG_ESS("mode = USBSTATUS_ADB (0x%x)\n", mode);
 			ret = set_product(dev, USBSTATUS_ADB);
 			break;
-#if !defined(CONFIG_ARIES_NTT) // disable tethering			
+#if !defined(CONFIG_ARIES_NTT) // disable tethering
 		case USBSTATUS_VTP: /* do not save usb mode */
 			CSY_DBG_ESS("mode = USBSTATUS_VTP (0x%x)\n", mode);
 			ret = set_product(dev, USBSTATUS_VTP);
 			break;
-#endif			
+#endif
 		case USBSTATUS_ASKON: /* do not save usb mode */
 			CSY_DBG_ESS("mode = USBSTATUS_ASKON (0x%x) Don't change usb mode\n", mode);
 			return;
@@ -705,6 +715,8 @@ static void samsung_enable_function(int mode)
 		dev->current_usb_mode = mode;
 	}
 
+	currentusbstatus = mode;
+
 	product_id = get_product_id(dev);
 	device_desc.idProduct = __constant_cpu_to_le16(product_id);
 
@@ -716,7 +728,7 @@ static void samsung_enable_function(int mode)
 		dev->cdev->gadget->speed, dev->current_usb_mode, dev->debugging_usb_mode, product_id);
 	usb_composite_force_reset(dev->cdev);
 
-	CSY_DBG_ESS("finished setting pid=0x%x\n",product_id);
+	CSY_DBG_ESS("finished setting pid=0x%x currentusbstate: %d (func: %s)\n",product_id, currentusbstatus,__func__);
 }
 #endif /* CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE */
 
@@ -754,9 +766,9 @@ static ssize_t tethering_switch_store(struct device *dev, struct device_attribut
 		dev_info(dev,"usb : Enable tethering\n");
 		samsung_enable_function(USBSTATUS_VTP);
 		if (a_dev->cdev && a_dev->cdev->gadget) {
-			dev_info(dev,"usb : vbus connect for tethering\n");
-			usb_gadget_vbus_connect(a_dev->cdev->gadget);
-		}
+                        dev_info(dev,"usb : vbus connect for tethering\n");
+                        usb_gadget_vbus_connect(a_dev->cdev->gadget);
+                }
 	}
 	else {
 		dev_info(dev,"usb : Disable tethering\n");
@@ -770,8 +782,7 @@ static ssize_t tethering_switch_store(struct device *dev, struct device_attribut
 }
 
 /* soonyong.cho : attribute of sysfs for tethering switch */
-static DEVICE_ATTR(tethering, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH,
-		tethering_switch_show, tethering_switch_store);
+static DEVICE_ATTR(tethering, S_IRUGO | S_IWGRP | S_IWUSR, tethering_switch_show, tethering_switch_store);
 
 /* soonyong.cho : sysfs for to show status of usb config
  *                Path (/sys/devices/platform/android_usb/UsbMenuSel)
@@ -792,10 +803,10 @@ static ssize_t UsbMenuSel_switch_show(struct device *dev, struct device_attribut
 				return sprintf(buf, "[UsbMenuSel] MTP\n");
 			case USBSTATUS_ASKON:
 				return sprintf(buf, "[UsbMenuSel] ASK\n");
-#if !defined(CONFIG_ARIES_NTT) // disable tethering		
+#if !defined(CONFIG_ARIES_NTT) // disable tethering
 			case USBSTATUS_VTP:
 				return sprintf(buf, "[UsbMenuSel] TETHERING\n");
-#endif				
+#endif
 			case USBSTATUS_ADB:
 				return sprintf(buf, "[UsbMenuSel] ACM_ADB_UMS\n");
 		}
@@ -815,33 +826,90 @@ static ssize_t UsbMenuSel_switch_store(struct device *dev, struct device_attribu
 	int value;
 	sscanf(buf, "%d", &value);
 
-	switch(value) {
-		case 0:
-			dev_info(dev,"Enable KIES(%d)\n", value);
-			samsung_enable_function(USBSTATUS_SAMSUNG_KIES);
-			break;
-		case 1:
-			dev_info(dev,"Enable MTP(%d)\n", value);
-			samsung_enable_function(USBSTATUS_MTPONLY);
-			break;
-		case 2:
-			dev_info(dev,"Enable UMS(%d)\n", value);
-			samsung_enable_function(USBSTATUS_UMS);
-			break;
-		case 3:
-			dev_info(dev,"Enable ASKON(%d)\n", value);
-			samsung_enable_function(USBSTATUS_ASKON);
-			break;
-		default:
-			dev_warn(dev,"Fail : value(%d) is not invaild.\n", value);
+	if (strncmp(buf, "KIES", 4) == 0){
+		CSY_DBG_ESS("Enable KIES(%d)\n", value);
+		askon_status=0;
+		samsung_enable_function(USBSTATUS_SAMSUNG_KIES);
 	}
+	if (strncmp(buf, "MTP", 3) == 0){
+		CSY_DBG_ESS("Enable MTP(%d)\n", value);
+		askon_status=0;
+		samsung_enable_function(USBSTATUS_MTPONLY);
+	}
+	if (strncmp(buf, "UMS", 3) == 0){
+		CSY_DBG_ESS("Enable UMS(%d)\n", value);
+		askon_status=0;
+		samsung_enable_function(USBSTATUS_UMS);
+	}
+	if (strncmp(buf, "ASKON", 5) == 0){
+		CSY_DBG_ESS("Enable ASKON(%d)\n", value);
+		askon_status=1;
+		samsung_enable_function(USBSTATUS_ASKON);
+	}
+
 	return size;
 }
 
 /* soonyong.cho : attribute of sysfs for usb menu switch */
-static DEVICE_ATTR(UsbMenuSel, S_IRGRP |S_IWGRP | S_IRUSR | S_IWUSR, UsbMenuSel_switch_show, UsbMenuSel_switch_store);
+static DEVICE_ATTR(UsbMenuSel, S_IRUGO |S_IWUGO | S_IRUSR | S_IWUSR, UsbMenuSel_switch_show, UsbMenuSel_switch_store);
+//static DEVICE_ATTR(UsbMenuSel, 0664, UsbMenuSel_switch_show, UsbMenuSel_switch_store);
 #endif /* CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE */
 
+static ssize_t AskOnStatus_switch_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+    if( askon_status )
+        return sprintf(buf, "%s\n", "Blocking");
+    else
+        return sprintf(buf, "%s\n", "NonBlocking");
+}
+static ssize_t AskOnStatus_switch_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t size)
+{
+    return size;
+}
+static DEVICE_ATTR(AskOnStatus, S_IRUGO |S_IWUGO | S_IRUSR | S_IWUSR, AskOnStatus_switch_show, AskOnStatus_switch_store);
+//static DEVICE_ATTR(AskOnStatus, 0664, AskOnStatus_switch_show, AskOnStatus_switch_store);
+
+static ssize_t AskOnMenuSel_switch_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+    return sprintf(buf, "%s[AskOnMenuSel] Port test ready!! \n", buf);
+}
+
+static ssize_t AskOnMenuSel_switch_store(struct device *dev, struct device_attribute *attr,     const char *buf, size_t size)
+{
+    if (strncmp(buf, "KIES", 4) == 0){
+        CSY_DBG_ESS("Enable KIES \n");
+        samsung_enable_function(USBSTATUS_SAMSUNG_KIES);
+    }
+    if (strncmp(buf, "MTP", 3) == 0){
+        CSY_DBG_ESS("Enable MTP \n");
+        samsung_enable_function(USBSTATUS_MTPONLY);
+    }
+    if (strncmp(buf, "UMS", 3) == 0){
+         CSY_DBG_ESS("Enable UMS \n");
+        samsung_enable_function(USBSTATUS_UMS);
+    }
+    if (strncmp(buf, "VTP", 3) == 0){
+        CSY_DBG_ESS("Enable VTP \n");
+         samsung_enable_function(USBSTATUS_VTP);
+    }
+    return size;
+}
+static DEVICE_ATTR(AskOnMenuSel, S_IRUGO |S_IWUGO | S_IRUSR | S_IWUSR, AskOnMenuSel_switch_show, AskOnMenuSel_switch_store);
+//static DEVICE_ATTR(AskOnMenuSel, 0664, AskOnMenuSel_switch_show, AskOnMenuSel_switch_store);
+
+static ssize_t UmsStatus_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+     if(currentusbstatus == USBSTATUS_VTP)
+        return sprintf(buf, "%s\n", "RemoveOffline");
+    else
+        if((currentusbstatus== USBSTATUS_UMS) || (currentusbstatus== USBSTATUS_ADB) )
+            return sprintf(buf, "%s\n", "ums online");
+        else
+            return sprintf(buf, "%s\n", "InsertOffline");
+}
+
+static DEVICE_ATTR(UmsStatus, S_IRUGO |S_IWUGO | S_IRUSR | S_IWUSR, UmsStatus_show, NULL);
+//static DEVICE_ATTR(UmsStatus, 0664, UmsStatus_show, NULL);
 
 static int android_probe(struct platform_device *pdev)
 {
@@ -886,6 +954,15 @@ static int android_probe(struct platform_device *pdev)
  */
 	if (device_create_file(&pdev->dev, &dev_attr_UsbMenuSel) < 0)
 		CSY_DBG("Failed to create device file(%s)!\n", dev_attr_UsbMenuSel.attr.name);
+
+    if (device_create_file(&pdev->dev, &dev_attr_AskOnMenuSel) < 0)
+        CSY_DBG("Failed to create device file(%s)!\n", dev_attr_AskOnMenuSel.attr.name);
+
+    if (device_create_file(&pdev->dev, &dev_attr_AskOnStatus) < 0)
+        CSY_DBG("Failed to create device file(%s)!\n", dev_attr_AskOnStatus.attr.name);
+
+    if (device_create_file(&pdev->dev, &dev_attr_UmsStatus) < 0)
+        CSY_DBG("Failed to create device file(%s)!\n", dev_attr_UmsStatus.attr.name);
 
 /* soonyong.cho : Create attribute of sysfs as '/sys/devices/platform/android_usb/tethering'
  *                It is for tethering menu. Netd controls usb setting when user click tethering menu.

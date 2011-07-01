@@ -823,7 +823,8 @@ static int sec_cable_status_update(struct chg_data *chg)
 	    chg->pdata->pmic_charger->get_connection_status &&
 	    chg->pdata->pmic_charger->get_connection_status())
 	{
-		vdc_status = true;
+		if (!chg->pdata->get_jig_status())
+			vdc_status = true;
 		if (chg->bat_info.dis_reason) {
 			pr_info("%s : battery status discharging : %d\n",
 				__func__, chg->bat_info.dis_reason);
@@ -976,7 +977,7 @@ static ssize_t sec_bat_show_attrs(struct device *dev,
 				POWER_SUPPLY_PROP_VOLTAGE_NOW, &value);
 			chg->bat_info.batt_vcell = value.intval;
 		}
-		i += scnprintf(buf + i, PAGE_SIZE - i, "%d\n", chg->bat_info.batt_vcell);
+		i += scnprintf(buf + i, PAGE_SIZE - i, "%d\n", (chg->bat_info.batt_vcell) / 1000);
 		break;
 
 	case BATT_TEMP:
@@ -1034,7 +1035,6 @@ static ssize_t sec_bat_show_attrs(struct device *dev,
 		i += scnprintf(buf + i, PAGE_SIZE - i, "%d\n", chg->bat_info.batt_is_full);
 		break;
 #endif
-
 	default:
 		i = -EINVAL;
 	}
